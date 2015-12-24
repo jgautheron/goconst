@@ -14,15 +14,14 @@ import (
 	"strings"
 )
 
-const usage = `goconst: find repeated strings that could be replaced by a constant
+const usageDc = `goconst: find repeated strings that could be replaced by a constant
 
 Usage:
 
-  goconst -path <directory>
+  goconst ARGS <directory>
 
 Flags:
 
-  -path              path to be scanned for imports
   -ignore            exclude files matching the given regular expression
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
@@ -31,20 +30,21 @@ Flags:
 
 Examples:
 
-  goconst -path $GOPATH/src/github.com/cockroachdb/cockroach/... -ignore "sql|rpc"
-  goconst -path $GOPATH/src/github.com/cockroachdb/cockroach -min-occurrences 3 -output json
+  goconst ./...
+  goconst -ignore "yacc|\.pb\." $GOPATH/src/github.com/cockroachdb/cockroach/...
+  goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
 `
 
 var (
-	flagPath           = flag.String("path", "./", "path to be scanned for constants")
 	flagIgnore         = flag.String("ignore", "", "ignore files matching the given regular expression")
 	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
 	flagOutput         = flag.String("output", "text", "output formatting")
 
-	strs   = map[string][]extendedPos{}
-	consts = map[string]constType{}
+	sourcePath = ""
+	strs       = map[string][]extendedPos{}
+	consts     = map[string]constType{}
 )
 
 type constType struct {
@@ -64,10 +64,11 @@ func main() {
 	flag.Parse()
 	log.SetPrefix("goconst: ")
 
-	if flag.NFlag() == 0 {
-		flag.Usage()
-		os.Exit(1)
+	args := flag.Args()
+	if len(args) != 1 {
+		usage()
 	}
+	sourcePath = args[0]
 
 	if err := parseTree(); err != nil {
 		log.Println(err)
@@ -77,11 +78,16 @@ func main() {
 	printOutput()
 }
 
+func usage() {
+	fmt.Fprintf(os.Stderr, usageDc)
+	os.Exit(1)
+}
+
 func parseTree() error {
-	path := *flagPath
+	pathLen := len(sourcePath)
 	// Parse recursively the given path if the recursive notation is found
-	if path[len(path)-3:] == "..." {
-		filepath.Walk(path[:len(path)-3], func(p string, f os.FileInfo, err error) error {
+	if pathLen >= 5 && sourcePath[pathLen-3:] == "..." {
+		filepath.Walk(sourcePath[:pathLen-3], func(p string, f os.FileInfo, err error) error {
 			if err != nil {
 				log.Println(err)
 				// resume walking
@@ -94,7 +100,7 @@ func parseTree() error {
 			return nil
 		})
 	} else {
-		parseDir(path)
+		parseDir(sourcePath)
 	}
 	return nil
 }
