@@ -24,22 +24,24 @@ Flags:
 
   -path              path to be scanned for imports
   -ignore            exclude files matching the given regular expression
-  -ignore-tests      exclude tests from the search
-  -match-constant    try to find an existing constant
-  -output            output formatting
+  -ignore-tests      exclude tests from the search (default: true)
+  -min-occurrences   report from how many occurrences (default: 2)
+  -match-constant    look for existing constants matching the strings
+  -output            output formatting (text or json)
 
-Examples
+Examples:
 
   goconst -path $GOPATH/src/github.com/cockroachdb/cockroach/... -ignore "sql|rpc"
-  goconst -path $GOPATH/src/github.com/cockroachdb/cockroach -output json
+  goconst -path $GOPATH/src/github.com/cockroachdb/cockroach -min-occurrences 3 -output json
 `
 
 var (
-	flagPath          = flag.String("path", "./", "path to be scanned for constants")
-	flagIgnore        = flag.String("ignore", "", "ignore files matching the given regular expression")
-	flagIgnoreTests   = flag.Bool("ignore-tests", true, "exclude tests from the search")
-	flagMatchConstant = flag.Bool("match-constant", false, "try to find an existing constant")
-	flagOutput        = flag.String("output", "text", "output formatting")
+	flagPath           = flag.String("path", "./", "path to be scanned for constants")
+	flagIgnore         = flag.String("ignore", "", "ignore files matching the given regular expression")
+	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
+	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
+	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
+	flagOutput         = flag.String("output", "text", "output formatting")
 
 	strs   = map[string][]extendedPos{}
 	consts = map[string]constType{}
@@ -139,6 +141,13 @@ func parseDir(dir string) error {
 }
 
 func printOutput() {
+	// Filter out items whose occurrences don't match the min value
+	for str, item := range strs {
+		if len(item) < *flagMinOccurrences {
+			delete(strs, str)
+		}
+	}
+
 	switch *flagOutput {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
@@ -150,12 +159,7 @@ func printOutput() {
 		})
 	case "text":
 		for str, item := range strs {
-			// Ignore single occurrences
-			if len(item) <= 1 {
-				continue
-			}
-
-			fmt.Printf(`%d occurrences of "%s" found`, len(item), str)
+			fmt.Printf(`%d occurrences of "%s" found:`, len(item), str)
 			for _, xpos := range item {
 				fmt.Printf("\n\t%s", xpos.String())
 			}
@@ -173,11 +177,17 @@ func printOutput() {
 	}
 }
 
+// TreeVisitor carries the package name and file name
+// for passing it to the imports map, and the fileSet for
+// retrieving the token.Position.
 type TreeVisitor struct {
 	fileSet               *token.FileSet
 	packageName, fileName string
 }
 
+// Visit browses the AST tree for strings that could be potentially
+// replaced by constants.
+// A map of existing constants is built as well (-match-constant).
 func (v *TreeVisitor) Visit(node ast.Node) ast.Visitor {
 	if node == nil {
 		return v
@@ -260,6 +270,7 @@ func (v *TreeVisitor) Visit(node ast.Node) ast.Visitor {
 	return v
 }
 
+// addString adds a string in the map along with its position in the tree.
 func (v *TreeVisitor) addString(str string, pos token.Pos) {
 	str = strings.Replace(str, `"`, "", 2)
 
@@ -273,11 +284,12 @@ func (v *TreeVisitor) addString(str string, pos token.Pos) {
 		strs[str] = make([]extendedPos, 0)
 	}
 	strs[str] = append(strs[str], extendedPos{
-		Position:    v.fileSet.Position(pos),
 		packageName: v.packageName,
+		Position:    v.fileSet.Position(pos),
 	})
 }
 
+// addConst adds a const in the map along with its position in the tree.
 func (v *TreeVisitor) addConst(name string, val string, pos token.Pos) {
 	val = strings.Replace(val, `"`, "", 2)
 	consts[val] = constType{
