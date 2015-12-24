@@ -5,7 +5,7 @@ Find repeated strings that could be replaced by a constant.
 ### Get Started
 
     $ go get github.com/jgautheron/goconst
-    $ goconst -path $GOPATH/src/github.com/cockroachdb/cockroach/...
+    $ goconst ./...
 
 ### Usage
 

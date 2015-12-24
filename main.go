@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-const usageDc = `goconst: find repeated strings that could be replaced by a constant
+const usageDoc = `goconst: find repeated strings that could be replaced by a constant
 
 Usage:
 
@@ -79,7 +79,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintf(os.Stderr, usageDc)
+	fmt.Fprintf(os.Stderr, usageDoc)
 	os.Exit(1)
 }
 
