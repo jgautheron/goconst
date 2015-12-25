@@ -2,6 +2,12 @@
 
 Find repeated strings that could be replaced by a constant.
 
+### Motivation
+
+There are obvious benefits to using constants instead of repeating strings, mostly to ease maintenance. Cannot argue against changing a single constant versus many strings.
+
+While this could be considered a beginner mistake, across time, multiple packages and large codebases, some repetition could have slipped in.
+
 ### Get Started
 
     $ go get github.com/jgautheron/goconst
@@ -28,3 +34,6 @@ Examples:
   goconst -ignore "yacc|\.pb\." $GOPATH/src/github.com/cockroachdb/cockroach/...
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
 ```
+
+### License
+MIT
