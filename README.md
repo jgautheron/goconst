@@ -35,5 +35,10 @@ Examples:
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
 ```
 
+### Other static analysis tools
+
+- [gogetimports](https://github.com/jgautheron/gogetimports): Get a JSON-formatted list of imports.
+- [usedexports](https://github.com/jgautheron/usedexports): Find exported variables that could be unexported.
+
 ### License
 MIT
