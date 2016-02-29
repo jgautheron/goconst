@@ -1,3 +1,9 @@
+// Package goconst finds repeated strings that could be replaced by a constant.
+//
+// There are obvious benefits to using constants instead of repeating strings,
+// mostly to ease maintenance. Cannot argue against changing a single constant versus many strings.
+// While this could be considered a beginner mistake, across time,
+// multiple packages and large codebases, some repetition could have slipped in.
 package goconst
 
 import (
@@ -25,6 +31,8 @@ type Parser struct {
 	consts Constants
 }
 
+// New creates a new instance of the parser.
+// This is your entry point if you'd like to use goconst as an API.
 func New(path, ignore string, ignoreTests, matchConstant bool) *Parser {
 	return &Parser{
 		path:          path,
@@ -38,6 +46,8 @@ func New(path, ignore string, ignoreTests, matchConstant bool) *Parser {
 	}
 }
 
+// ParseTree will search the given path for occurrences that could be moved into constants.
+// If "..." is appended, the search will be recursive.
 func (p *Parser) ParseTree() (Strings, Constants, error) {
 	pathLen := len(p.path)
 	// Parse recursively the given path if the recursive notation is found

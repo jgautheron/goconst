@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/jgautheron/goconst"
 )
@@ -91,11 +92,18 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 		})
 	case "text":
 		for str, item := range strs {
-			fmt.Printf(`%d occurrences of "%s" found:`, len(item), str)
 			for _, xpos := range item {
-				fmt.Printf("\n\t%s", xpos.String())
+				fmt.Printf(
+					`%s:%d:%d:%d other occurrence(s) of "%s" found in: %s`,
+					xpos.Filename,
+					xpos.Line,
+					xpos.Column,
+					len(item)-1,
+					str,
+					occurrences(item, xpos),
+				)
+				fmt.Print("\n")
 			}
-			fmt.Print("\n")
 
 			if len(consts) == 0 {
 				continue
@@ -109,4 +117,17 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 	default:
 		fmt.Printf(`Unsupported output format: %s`, output)
 	}
+}
+
+func occurrences(item []goconst.ExtendedPos, current goconst.ExtendedPos) string {
+	occurrences := []string{}
+	for _, xpos := range item {
+		if xpos == current {
+			continue
+		}
+		occurrences = append(occurrences, fmt.Sprintf(
+			"%s:%d:%d", xpos.Filename, xpos.Line, xpos.Column,
+		))
+	}
+	return strings.Join(occurrences, " ")
 }
