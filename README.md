@@ -10,7 +10,7 @@ While this could be considered a beginner mistake, across time, multiple package
 
 ### Get Started
 
-    $ go get github.com/jgautheron/goconst
+    $ go get github.com/jgautheron/goconst/cmd/...
     $ goconst ./...
 
 ### Usage
