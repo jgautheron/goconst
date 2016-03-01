@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jgautheron/goconst"
@@ -24,6 +25,8 @@ Flags:
   -min-occurrences   report from how many occurrences (default: 2)
   -match-constant    look for existing constants matching the strings
   -numbers           search also for duplicated numbers
+  -min          	   minimum value, only works with -numbers
+  -max          	   maximum value, only works with -numbers
   -output            output formatting (text or json)
 
 Examples:
@@ -31,6 +34,7 @@ Examples:
   goconst ./...
   goconst -ignore "yacc|\.pb\." $GOPATH/src/github.com/cockroachdb/cockroach/...
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
+  goconst -numbers -min 60 -max 512 .
 `
 
 var (
@@ -39,6 +43,8 @@ var (
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
 	flagNumbers        = flag.Bool("numbers", false, "search also for duplicated numbers")
+	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
+	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
 	flagOutput         = flag.String("output", "text", "output formatting")
 )
 
@@ -68,7 +74,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	printOutput(strs, consts, *flagOutput, *flagMinOccurrences)
+	printOutput(strs, consts, *flagOutput, *flagMinOccurrences, *flagMin, *flagMax)
 }
 
 func usage() {
@@ -76,11 +82,21 @@ func usage() {
 	os.Exit(1)
 }
 
-func printOutput(strs goconst.Strings, consts goconst.Constants, output string, minOccurrences int) {
-	// Filter out items whose occurrences don't match the min value
+func printOutput(strs goconst.Strings, consts goconst.Constants, output string, minOccurrences, min, max int) {
 	for str, item := range strs {
+		// Filter out items whose occurrences don't match the min value
 		if len(item) < minOccurrences {
 			delete(strs, str)
+		}
+
+		// If the value is a number
+		if i, err := strconv.Atoi(str); err == nil {
+			if min != 0 && i < min {
+				delete(strs, str)
+			}
+			if max != 0 && i > max {
+				delete(strs, str)
+			}
 		}
 	}
 

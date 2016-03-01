@@ -27,6 +27,8 @@ Flags:
   -min-occurrences   report from how many occurrences (default: 2)
   -match-constant    look for existing constants matching the strings
   -numbers           search also for duplicated numbers
+  -min          	   minimum value, only works with -numbers
+  -max          	   maximum value, only works with -numbers
   -output            output formatting (text or json)
 
 Examples:
@@ -34,6 +36,7 @@ Examples:
   goconst ./...
   goconst -ignore "yacc|\.pb\." $GOPATH/src/github.com/cockroachdb/cockroach/...
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
+  goconst -numbers -min 60 -max 512 .
 ```
 
 ### Other static analysis tools
