@@ -26,6 +26,7 @@ Flags:
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
   -match-constant    look for existing constants matching the strings
+  -numbers           search also for duplicated numbers
   -output            output formatting (text or json)
 
 Examples:

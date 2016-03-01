@@ -26,6 +26,8 @@ type Parser struct {
 	path, ignore               string
 	ignoreTests, matchConstant bool
 
+	supportedTokens []token.Token
+
 	// Internals
 	strs   Strings
 	consts Constants
@@ -33,12 +35,18 @@ type Parser struct {
 
 // New creates a new instance of the parser.
 // This is your entry point if you'd like to use goconst as an API.
-func New(path, ignore string, ignoreTests, matchConstant bool) *Parser {
+func New(path, ignore string, ignoreTests, matchConstant, numbers bool) *Parser {
+	supportedTokens := []token.Token{token.STRING}
+	if numbers {
+		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
+	}
+
 	return &Parser{
-		path:          path,
-		ignore:        ignore,
-		ignoreTests:   ignoreTests,
-		matchConstant: matchConstant,
+		path:            path,
+		ignore:          ignore,
+		ignoreTests:     ignoreTests,
+		matchConstant:   matchConstant,
+		supportedTokens: supportedTokens,
 
 		// Initialize the maps
 		strs:   Strings{},

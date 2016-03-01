@@ -23,6 +23,7 @@ Flags:
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
   -match-constant    look for existing constants matching the strings
+  -numbers           search also for duplicated numbers
   -output            output formatting (text or json)
 
 Examples:
@@ -37,6 +38,7 @@ var (
 	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
+	flagNumbers        = flag.Bool("numbers", false, "search also for duplicated numbers")
 	flagOutput         = flag.String("output", "text", "output formatting")
 )
 
@@ -58,6 +60,7 @@ func main() {
 		*flagIgnore,
 		*flagIgnoreTests,
 		*flagMatchConstant,
+		*flagNumbers,
 	)
 	strs, consts, err := gco.ParseTree()
 	if err != nil {
@@ -84,12 +87,15 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 	switch output {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
-		enc.Encode(struct {
+		err := enc.Encode(struct {
 			Strings   goconst.Strings   `json:"strings,omitEmpty"`
 			Constants goconst.Constants `json:"constants,omitEmpty"`
 		}{
 			strs, consts,
 		})
+		if err != nil {
+			log.Fatal(err)
+		}
 	case "text":
 		for str, item := range strs {
 			for _, xpos := range item {

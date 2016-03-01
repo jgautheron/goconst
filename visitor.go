@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// TreeVisitor carries the package name and file name
+// treeVisitor carries the package name and file name
 // for passing it to the imports map, and the fileSet for
 // retrieving the token.Position.
 type treeVisitor struct {
@@ -40,7 +40,7 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 			val := spec.(*ast.ValueSpec)
 			for i, str := range val.Values {
 				lit, ok := str.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
+				if !ok || !v.isSupported(lit.Kind) {
 					continue
 				}
 
@@ -48,11 +48,11 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 			}
 		}
 
-		// foo := "moo"
+	// foo := "moo"
 	case *ast.AssignStmt:
 		for _, rhs := range t.Rhs {
 			lit, ok := rhs.(*ast.BasicLit)
-			if !ok || lit.Kind != token.STRING {
+			if !ok || !v.isSupported(lit.Kind) {
 				continue
 			}
 
@@ -69,12 +69,12 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 		var ok bool
 
 		lit, ok = t.X.(*ast.BasicLit)
-		if ok && lit.Kind == token.STRING {
+		if ok && v.isSupported(lit.Kind) {
 			v.addString(lit.Value, lit.Pos())
 		}
 
 		lit, ok = t.Y.(*ast.BasicLit)
-		if ok && lit.Kind == token.STRING {
+		if ok && v.isSupported(lit.Kind) {
 			v.addString(lit.Value, lit.Pos())
 		}
 
@@ -82,7 +82,7 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 	case *ast.CaseClause:
 		for _, item := range t.List {
 			lit, ok := item.(*ast.BasicLit)
-			if ok && lit.Kind == token.STRING {
+			if ok && v.isSupported(lit.Kind) {
 				v.addString(lit.Value, lit.Pos())
 			}
 		}
@@ -91,7 +91,7 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 	case *ast.ReturnStmt:
 		for _, item := range t.Results {
 			lit, ok := item.(*ast.BasicLit)
-			if ok && lit.Kind == token.STRING {
+			if ok && v.isSupported(lit.Kind) {
 				v.addString(lit.Value, lit.Pos())
 			}
 		}
@@ -127,4 +127,13 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 		packageName: v.packageName,
 		Position:    v.fileSet.Position(pos),
 	}
+}
+
+func (v *treeVisitor) isSupported(tk token.Token) bool {
+	for _, s := range v.p.supportedTokens {
+		if tk == s {
+			return true
+		}
+	}
+	return false
 }
