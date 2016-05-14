@@ -109,6 +109,10 @@ func (v *treeVisitor) addString(str string, pos token.Pos) {
 		return
 	}
 
+	if len(str) < v.p.minLength {
+		return
+	}
+
 	_, ok := v.p.strs[str]
 	if !ok {
 		v.p.strs[str] = make([]ExtendedPos, 0)

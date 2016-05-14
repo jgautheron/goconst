@@ -25,7 +25,8 @@ Flags:
   -ignore            exclude files matching the given regular expression
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
-  -match-constant    look for existing constants matching the strings
+  -min-length        only report strings with the minimum given length (default: 3)
+  -match-constant    look for existing constants matching the values
   -numbers           search also for duplicated numbers
   -min          	   minimum value, only works with -numbers
   -max          	   maximum value, only works with -numbers
