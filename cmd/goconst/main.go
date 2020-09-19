@@ -30,6 +30,7 @@ Flags:
   -min               minimum value, only works with -numbers
   -max               maximum value, only works with -numbers
   -output            output formatting (text or json)
+  -set_exit_status   Set exit status to 2 if any issues are found
 
 Examples:
 
@@ -49,6 +50,7 @@ var (
 	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
 	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
 	flagOutput         = flag.String("output", "text", "output formatting")
+	flagSetExitStatus  = flag.Bool("set_exit_status", false, "Set exit status to 2 if any issues are found")
 )
 
 func main() {
@@ -64,14 +66,19 @@ func main() {
 		os.Exit(1)
 	}
 	for _, path := range args {
-		if err := run(path); err != nil {
+		anyIssues, err := run(path)
+		if err != nil {
 			log.Println(err)
 			os.Exit(1)
+		}
+
+		if anyIssues && *flagSetExitStatus {
+			os.Exit(2)
 		}
 	}
 }
 
-func run(path string) error {
+func run(path string) (bool, error) {
 	gco := goconst.New(
 		path,
 		*flagIgnore,
@@ -82,7 +89,7 @@ func run(path string) error {
 	)
 	strs, consts, err := gco.ParseTree()
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	return printOutput(strs, consts, *flagOutput, *flagMinOccurrences, *flagMin, *flagMax)
@@ -92,7 +99,7 @@ func usage(out io.Writer) {
 	fmt.Fprintf(out, usageDoc)
 }
 
-func printOutput(strs goconst.Strings, consts goconst.Constants, output string, minOccurrences, min, max int) error {
+func printOutput(strs goconst.Strings, consts goconst.Constants, output string, minOccurrences, min, max int) (bool, error) {
 	for str, item := range strs {
 		// Filter out items whose occurrences don't match the min value
 		if len(item) < minOccurrences {
@@ -120,7 +127,7 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 			strs, consts,
 		})
 		if err != nil {
-			return err
+			return false, err
 		}
 	case "text":
 		for str, item := range strs {
@@ -147,9 +154,9 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 			}
 		}
 	default:
-		return fmt.Errorf(`Unsupported output format: %s`, output)
+		return false, fmt.Errorf(`Unsupported output format: %s`, output)
 	}
-	return nil
+	return len(strs) + len(consts) > 0, nil
 }
 
 func occurrences(item []goconst.ExtendedPos, current goconst.ExtendedPos) string {
