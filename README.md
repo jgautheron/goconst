@@ -31,7 +31,7 @@ Flags:
   -min          	   minimum value, only works with -numbers
   -max          	   maximum value, only works with -numbers
   -output            output formatting (text or json)
-  -set_exit_status   Set exit status to 2 if any issues are found
+  -set-exit-status   Set exit status to 2 if any issues are found
 
 Examples:
 

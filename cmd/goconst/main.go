@@ -30,7 +30,7 @@ Flags:
   -min               minimum value, only works with -numbers
   -max               maximum value, only works with -numbers
   -output            output formatting (text or json)
-  -set_exit_status   Set exit status to 2 if any issues are found
+  -set-exit-status   Set exit status to 2 if any issues are found
 
 Examples:
 
@@ -50,7 +50,7 @@ var (
 	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
 	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
 	flagOutput         = flag.String("output", "text", "output formatting")
-	flagSetExitStatus  = flag.Bool("set_exit_status", false, "Set exit status to 2 if any issues are found")
+	flagSetExitStatus  = flag.Bool("set-exit-status", false, "Set exit status to 2 if any issues are found")
 )
 
 func main() {
