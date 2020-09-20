@@ -65,6 +65,8 @@ func main() {
 		usage(os.Stderr)
 		os.Exit(1)
 	}
+
+	lintFailed := false
 	for _, path := range args {
 		anyIssues, err := run(path)
 		if err != nil {
@@ -72,9 +74,13 @@ func main() {
 			os.Exit(1)
 		}
 
-		if anyIssues && *flagSetExitStatus {
-			os.Exit(2)
+		if anyIssues {
+			lintFailed = true
 		}
+	}
+
+	if lintFailed && *flagSetExitStatus {
+		os.Exit(2)
 	}
 }
 
