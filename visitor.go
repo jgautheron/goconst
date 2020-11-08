@@ -1,6 +1,7 @@
 package goconst
 
 import (
+	"fmt"
 	"go/ast"
 	"go/token"
 	"strings"
@@ -111,8 +112,12 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 
 // addString adds a string in the map along with its position in the tree.
 func (v *treeVisitor) addString(str string, pos token.Pos) {
-	// Drop first and last character, quote, backquote...
-	str = str[1 : len(str)-1]
+	if strings.HasPrefix(str, `"`) || strings.HasPrefix(str, "`") {
+		// Drop first and last character, quote, backquote...
+		str = str[1 : len(str)-1]
+	}
+
+	fmt.Println(str)
 
 	// Ignore empty strings
 	if len(str) == 0 {

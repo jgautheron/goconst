@@ -6,6 +6,7 @@ import (
 )
 
 const Foo = "bar"
+const NumberConst = 123
 
 var url string
 
@@ -27,4 +28,13 @@ func testCase() string {
 		return ""
 	}
 	return "foo"
+}
+
+func testInt() int {
+	test := 123
+	if test == 123 {
+		return 123
+	}
+
+	return 123
 }

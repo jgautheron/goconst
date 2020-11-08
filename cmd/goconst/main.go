@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/jgautheron/goconst"
@@ -91,38 +90,24 @@ func run(path string) (bool, error) {
 		*flagIgnoreTests,
 		*flagMatchConstant,
 		*flagNumbers,
+		*flagMin,
+		*flagMax,
 		*flagMinLength,
+		*flagMinOccurrences,
 	)
 	strs, consts, err := gco.ParseTree()
 	if err != nil {
 		return false, err
 	}
 
-	return printOutput(strs, consts, *flagOutput, *flagMinOccurrences, *flagMin, *flagMax)
+	return printOutput(strs, consts, *flagOutput)
 }
 
 func usage(out io.Writer) {
 	fmt.Fprintf(out, usageDoc)
 }
 
-func printOutput(strs goconst.Strings, consts goconst.Constants, output string, minOccurrences, min, max int) (bool, error) {
-	for str, item := range strs {
-		// Filter out items whose occurrences don't match the min value
-		if len(item) < minOccurrences {
-			delete(strs, str)
-		}
-
-		// If the value is a number
-		if i, err := strconv.Atoi(str); err == nil {
-			if min != 0 && i < min {
-				delete(strs, str)
-			}
-			if max != 0 && i > max {
-				delete(strs, str)
-			}
-		}
-	}
-
+func printOutput(strs goconst.Strings, consts goconst.Constants, output string) (bool, error) {
 	switch output {
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
@@ -162,7 +147,7 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string, 
 	default:
 		return false, fmt.Errorf(`Unsupported output format: %s`, output)
 	}
-	return len(strs) + len(consts) > 0, nil
+	return len(strs)+len(consts) > 0, nil
 }
 
 func occurrences(item []goconst.ExtendedPos, current goconst.ExtendedPos) string {

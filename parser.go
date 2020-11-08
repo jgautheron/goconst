@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -25,7 +26,8 @@ type Parser struct {
 	// Meant to be passed via New()
 	path, ignore               string
 	ignoreTests, matchConstant bool
-	minLength                  int
+	minLength, minOccurrences  int
+	numberMin, numberMax       int
 
 	supportedTokens []token.Token
 
@@ -36,7 +38,7 @@ type Parser struct {
 
 // New creates a new instance of the parser.
 // This is your entry point if you'd like to use goconst as an API.
-func New(path, ignore string, ignoreTests, matchConstant, numbers bool, minLength int) *Parser {
+func New(path, ignore string, ignoreTests, matchConstant, numbers bool, numberMin, numberMax, minLength, minOccurrences int) *Parser {
 	supportedTokens := []token.Token{token.STRING}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
@@ -48,6 +50,9 @@ func New(path, ignore string, ignoreTests, matchConstant, numbers bool, minLengt
 		ignoreTests:     ignoreTests,
 		matchConstant:   matchConstant,
 		minLength:       minLength,
+		minOccurrences:  minOccurrences,
+		numberMin:       numberMin,
+		numberMax:       numberMax,
 		supportedTokens: supportedTokens,
 
 		// Initialize the maps
@@ -77,7 +82,30 @@ func (p *Parser) ParseTree() (Strings, Constants, error) {
 	} else {
 		p.parseDir(p.path)
 	}
+
+	p.ProcessResults()
+
 	return p.strs, p.consts, nil
+}
+
+// ProcessResults post-processes the raw results.
+func (p *Parser) ProcessResults() {
+	for str, item := range p.strs {
+		// Filter out items whose occurrences don't match the min value
+		if len(item) < p.minOccurrences {
+			delete(p.strs, str)
+		}
+
+		// If the value is a number
+		if i, err := strconv.Atoi(str); err == nil {
+			if p.numberMin != 0 && i < p.numberMin {
+				delete(p.strs, str)
+			}
+			if p.numberMax != 0 && i > p.numberMax {
+				delete(p.strs, str)
+			}
+		}
+	}
 }
 
 func (p *Parser) parseDir(dir string) error {
