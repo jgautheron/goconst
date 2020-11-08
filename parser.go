@@ -162,3 +162,55 @@ type ExtendedPos struct {
 	token.Position
 	packageName string
 }
+
+type Issue struct {
+	Pos             token.Position
+	OccurencesCount int
+	Str             string
+	MatchingConst   string
+}
+
+type Config struct {
+	MatchWithConstants bool
+	MinStringLength    int
+	MinOccurrences     int
+}
+
+func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
+	p := New("", "", false, cfg.MatchWithConstants, false, cfg.MinStringLength)
+	var issues []Issue
+	for _, f := range files {
+		ast.Walk(&treeVisitor{
+			fileSet:     fset,
+			packageName: "",
+			fileName:    "",
+			p:           p,
+		}, f)
+	}
+
+	for str, item := range p.strs {
+		// Filter out items whose occurrences don't match the min value
+		if len(item) < cfg.MinOccurrences {
+			delete(p.strs, str)
+		}
+	}
+
+	for str, item := range p.strs {
+		fi := item[0]
+		i := Issue{
+			Pos:             fi.Position,
+			OccurencesCount: len(item),
+			Str:             str,
+		}
+
+		if len(p.consts) != 0 {
+			if cst, ok := p.consts[str]; ok {
+				// const should be in the same package and exported
+				i.MatchingConst = cst.Name
+			}
+		}
+		issues = append(issues, i)
+	}
+
+	return issues, nil
+}
