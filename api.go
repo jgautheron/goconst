@@ -42,6 +42,7 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 			p:           p,
 		}, f)
 	}
+	p.ProcessResults()
 
 	for str, item := range p.strs {
 		fi := item[0]
