@@ -28,6 +28,7 @@ type Parser struct {
 	ignoreTests, matchConstant bool
 	minLength, minOccurrences  int
 	numberMin, numberMax       int
+	excludeTypes               map[Type]bool
 
 	supportedTokens []token.Token
 
@@ -38,7 +39,7 @@ type Parser struct {
 
 // New creates a new instance of the parser.
 // This is your entry point if you'd like to use goconst as an API.
-func New(path, ignore string, ignoreTests, matchConstant, numbers bool, numberMin, numberMax, minLength, minOccurrences int) *Parser {
+func New(path, ignore string, ignoreTests, matchConstant, numbers bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
 	supportedTokens := []token.Token{token.STRING}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
@@ -54,6 +55,7 @@ func New(path, ignore string, ignoreTests, matchConstant, numbers bool, numberMi
 		numberMin:       numberMin,
 		numberMax:       numberMax,
 		supportedTokens: supportedTokens,
+		excludeTypes:    excludeTypes,
 
 		// Initialize the maps
 		strs:   Strings{},
@@ -162,3 +164,13 @@ type ExtendedPos struct {
 	token.Position
 	packageName string
 }
+
+type Type int
+
+const (
+	Assignment Type = iota
+	Binary
+	Case
+	Return
+	Call
+)

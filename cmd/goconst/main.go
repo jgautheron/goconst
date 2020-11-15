@@ -94,6 +94,7 @@ func run(path string) (bool, error) {
 		*flagMax,
 		*flagMinLength,
 		*flagMinOccurrences,
+		map[goconst.Type]bool{},
 	)
 	strs, consts, err := gco.ParseTree()
 	if err != nil {
