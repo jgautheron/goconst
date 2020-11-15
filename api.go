@@ -19,6 +19,7 @@ type Config struct {
 	ParseNumbers       bool
 	NumberMin          int
 	NumberMax          int
+	ExcludeTypes       map[Type]bool
 }
 
 func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
@@ -32,6 +33,7 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 		cfg.NumberMax,
 		cfg.MinStringLength,
 		cfg.MinOccurrences,
+		cfg.ExcludeTypes,
 	)
 	var issues []Issue
 	for _, f := range files {
