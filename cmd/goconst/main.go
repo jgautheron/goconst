@@ -30,6 +30,7 @@ Flags:
   -max               maximum value, only works with -numbers
   -output            output formatting (text or json)
   -set-exit-status   Set exit status to 2 if any issues are found
+  -grouped           print single line per match, only works with -output text
 
 Examples:
 
@@ -50,6 +51,7 @@ var (
 	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
 	flagOutput         = flag.String("output", "text", "output formatting")
 	flagSetExitStatus  = flag.Bool("set-exit-status", false, "Set exit status to 2 if any issues are found")
+	flagGrouped        = flag.Bool("grouped", false, "print single line per match, only works with -output text")
 )
 
 func main() {
@@ -134,6 +136,10 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 					occurrences(item, xpos),
 				)
 				fmt.Print("\n")
+
+				if *flagGrouped {
+					break
+				}
 			}
 
 			if len(consts) == 0 {
