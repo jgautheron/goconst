@@ -3,6 +3,7 @@ package goconst
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 )
 
 type Issue struct {
@@ -38,6 +39,11 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 	)
 	var issues []Issue
 	for _, f := range files {
+		if p.ignoreTests {
+			if filename := fset.Position(f.Pos()).Filename; strings.HasSuffix(filename, testSuffix) {
+				continue
+			}
+		}
 		ast.Walk(&treeVisitor{
 			fileSet:     fset,
 			packageName: "",
