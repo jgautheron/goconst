@@ -21,6 +21,7 @@ Usage:
 Flags:
 
   -ignore            exclude files matching the given regular expression
+  -ignore-strings    exclude strings matching the given regular expression
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
   -min-length        only report strings with the minimum given length (default: 3)
@@ -42,6 +43,7 @@ Examples:
 
 var (
 	flagIgnore         = flag.String("ignore", "", "ignore files matching the given regular expression")
+	flagIgnoreStrings  = flag.String("ignore-strings", "", "ignore strings matching the given regular expression")
 	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMinLength      = flag.Int("min-length", 3, "only report strings with the minimum given length")
@@ -89,6 +91,7 @@ func run(path string) (bool, error) {
 	gco := goconst.New(
 		path,
 		*flagIgnore,
+		*flagIgnoreStrings,
 		*flagIgnoreTests,
 		*flagMatchConstant,
 		*flagNumbers,
