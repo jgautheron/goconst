@@ -27,12 +27,7 @@ func testCase() string {
 	case "moo":
 		return ""
 	}
-
-	test2 := "moo" + fmt.Sprintf("%d", testInt())
-	if test2 > "foo" {
-		test2 += "foo"
-	}
-	return "foo" + test2
+	return "foo"
 }
 
 func testInt() int {
