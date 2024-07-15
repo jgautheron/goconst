@@ -10,7 +10,7 @@ While this could be considered a beginner mistake, across time, multiple package
 
 ### Get Started
 
-    $ go get github.com/jgautheron/goconst/cmd/goconst
+    $ go install github.com/jgautheron/goconst/cmd/goconst@latest
     $ goconst ./...
 
 ### Usage
@@ -40,6 +40,7 @@ Examples:
   goconst -ignore "yacc|\.pb\." $GOPATH/src/github.com/cockroachdb/cockroach/...
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
   goconst -numbers -min 60 -max 512 .
+  goconst -min-occurrences 5 $(go list -m -f '{{.Dir}}')
 ```
 
 ### Other static analysis tools
