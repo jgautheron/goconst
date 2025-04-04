@@ -3,6 +3,7 @@ package goconst
 import (
 	"go/ast"
 	"go/token"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -14,6 +15,10 @@ type treeVisitor struct {
 	p                     *Parser
 	fileSet               *token.FileSet
 	packageName, fileName string
+	// Pre-compiled regex for early filtering
+	ignoreRegex *regexp.Regexp
+	// Reusable buffer to avoid allocations when unquoting strings
+	buffer []byte
 }
 
 // Visit browses the AST tree for strings that could be potentially
@@ -112,40 +117,127 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 
 // addString adds a string in the map along with its position in the tree.
 func (v *treeVisitor) addString(str string, pos token.Pos, typ Type) {
+	// Early type exclusion check
 	ok, excluded := v.p.excludeTypes[typ]
 	if ok && excluded {
 		return
 	}
+
 	// Drop quotes if any
+	var unquotedStr string
 	if strings.HasPrefix(str, `"`) || strings.HasPrefix(str, "`") {
-		str, _ = strconv.Unquote(str)
+		var err error
+		// Reuse strings from pool if possible to avoid allocations
+		sb := GetStringBuilder()
+		defer PutStringBuilder(sb)
+
+		unquotedStr, err = strconv.Unquote(str)
+		if err != nil {
+			// If unquoting fails, manually strip quotes
+			// This avoids additional temporary strings
+			if len(str) >= 2 {
+				sb.WriteString(str[1 : len(str)-1])
+				unquotedStr = sb.String()
+			} else {
+				unquotedStr = str
+			}
+		}
+	} else {
+		unquotedStr = str
 	}
 
-	// Ignore empty strings
-	if len(str) == 0 {
+	// Early length check
+	if len(unquotedStr) == 0 || len(unquotedStr) < v.p.minLength {
 		return
 	}
 
-	if len(str) < v.p.minLength {
+	// Early regex filtering - pre-compiled for efficiency
+	if v.ignoreRegex != nil && v.ignoreRegex.MatchString(unquotedStr) {
 		return
 	}
 
-	_, ok = v.p.strs[str]
-	if !ok {
-		v.p.strs[str] = make([]ExtendedPos, 0)
+	// Early number range filtering
+	if v.p.numberMin != 0 || v.p.numberMax != 0 {
+		if i, err := strconv.ParseInt(unquotedStr, 0, 0); err == nil {
+			if (v.p.numberMin != 0 && i < int64(v.p.numberMin)) ||
+				(v.p.numberMax != 0 && i > int64(v.p.numberMax)) {
+				return
+			}
+		}
 	}
-	v.p.strs[str] = append(v.p.strs[str], ExtendedPos{
-		packageName: v.packageName,
-		Position:    v.fileSet.Position(pos),
-	})
+
+	// Use interned string to reduce memory usage - identical strings share the same memory
+	internedStr := InternString(unquotedStr)
+
+	// Update the count first, this is faster than appending to slices
+	count := v.p.IncrementStringCount(internedStr)
+
+	// Only continue if we're still adding the position to the map
+	// or if count has reached threshold
+	if count == 1 || count == v.p.minOccurrences {
+		// Lock to safely update the shared map
+		v.p.stringMutex.Lock()
+		defer v.p.stringMutex.Unlock()
+
+		_, exists := v.p.strs[internedStr]
+		if !exists {
+			v.p.strs[internedStr] = make([]ExtendedPos, 0, v.p.minOccurrences) // Preallocate with expected size
+		}
+
+		// Create an optimized position record
+		newPos := ExtendedPos{
+			packageName: InternString(v.packageName), // Intern the package name to reduce memory
+			Position:    v.fileSet.Position(pos),
+		}
+
+		v.p.strs[internedStr] = append(v.p.strs[internedStr], newPos)
+	}
 }
 
 // addConst adds a const in the map along with its position in the tree.
 func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
-	val = strings.Replace(val, `"`, "", 2)
-	v.p.consts[val] = ConstType{
-		Name:        name,
-		packageName: v.packageName,
+	// Early filtering using the same criteria as for strings
+	var unquotedVal string
+	if strings.HasPrefix(val, `"`) || strings.HasPrefix(val, "`") {
+		var err error
+		// Use string builder from pool to reduce allocations
+		sb := GetStringBuilder()
+		defer PutStringBuilder(sb)
+
+		if unquotedVal, err = strconv.Unquote(val); err != nil {
+			// If unquoting fails, manually strip quotes without allocations
+			if len(val) >= 2 {
+				sb.WriteString(val[1 : len(val)-1])
+				unquotedVal = sb.String()
+			} else {
+				unquotedVal = val
+			}
+		}
+	} else {
+		unquotedVal = val
+	}
+
+	// Skip constants with values that would be filtered anyway
+	if len(unquotedVal) < v.p.minLength {
+		return
+	}
+
+	if v.ignoreRegex != nil && v.ignoreRegex.MatchString(unquotedVal) {
+		return
+	}
+
+	// Use interned string to reduce memory usage
+	internedVal := InternString(unquotedVal)
+	internedName := InternString(name)
+	internedPkg := InternString(v.packageName)
+
+	// Lock to safely update the shared map
+	v.p.constMutex.Lock()
+	defer v.p.constMutex.Unlock()
+
+	v.p.consts[internedVal] = ConstType{
+		Name:        internedName,
+		packageName: internedPkg,
 		Position:    v.fileSet.Position(pos),
 	}
 }

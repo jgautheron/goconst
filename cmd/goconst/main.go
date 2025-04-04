@@ -88,6 +88,8 @@ func main() {
 	}
 }
 
+// run analyzes a single path for repeated strings that could be constants.
+// It returns true if any issues were found, and an error if the analysis failed.
 func run(path string) (bool, error) {
 	gco := goconst.New(
 		path,
@@ -110,10 +112,13 @@ func run(path string) (bool, error) {
 	return printOutput(strs, consts, *flagOutput)
 }
 
+// usage prints the usage documentation to the specified writer.
 func usage(out io.Writer) {
 	fmt.Fprintf(out, usageDoc)
 }
 
+// printOutput formats and displays the analysis results based on the specified output format.
+// It returns true if any issues were found, and an error if output formatting failed.
 func printOutput(strs goconst.Strings, consts goconst.Constants, output string) (bool, error) {
 	switch output {
 	case "json":
@@ -161,6 +166,7 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 	return len(strs)+len(consts) > 0, nil
 }
 
+// occurrences formats a list of all occurrences of a string, excluding the current position.
 func occurrences(item []goconst.ExtendedPos, current goconst.ExtendedPos) string {
 	occurrences := []string{}
 	for _, xpos := range item {

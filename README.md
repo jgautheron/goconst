@@ -23,7 +23,7 @@ Usage:
 Flags:
 
   -ignore            exclude files matching the given regular expression
-  -ignore-strings    exclude strings matching the given regular expression  
+  -ignore-strings    exclude strings matching the given regular expression
   -ignore-tests      exclude tests from the search (default: true)
   -min-occurrences   report from how many occurrences (default: 2)
   -min-length        only report strings with the minimum given length (default: 3)
@@ -43,10 +43,43 @@ Examples:
   goconst -min-occurrences 5 $(go list -m -f '{{.Dir}}')
 ```
 
+### Development
+
+#### Running Tests
+
+The project includes a comprehensive test suite. To run the tests:
+
+```bash
+# Run all tests
+go test ./...
+
+# Run tests with verbose output
+go test -v ./...
+
+# Run tests with race detector
+go test -race ./...
+
+# Run benchmarks
+go test -bench=. ./...
+
+# Check test coverage
+go test -cover ./...
+```
+
+#### Contributing
+
+Contributions are welcome! Before submitting a PR:
+
+1. Make sure all tests pass
+2. Add tests for new functionality
+3. Ensure your code passes linting checks
+4. Update documentation as needed
+
 ### Other static analysis tools
 
 - [gogetimports](https://github.com/jgautheron/gogetimports): Get a JSON-formatted list of imports.
 - [usedexports](https://github.com/jgautheron/usedexports): Find exported variables that could be unexported.
 
 ### License
+
 MIT
