@@ -67,3 +67,8 @@ func testContexts() {
 
 	fmt.Println(assigned)
 }
+
+func testDuplicateConsts() {
+	// This const should be detected as a duplicate const of MatchingConst
+	const duplicate = "should be constant"
+}

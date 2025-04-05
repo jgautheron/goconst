@@ -42,6 +42,18 @@ func example() {
 			expectedIssues: 1,
 		},
 		{
+			name: "duplicate consts",
+			code: `package example
+const ConstA = "test"
+func example() {
+	const ConstB = "test"
+}`,
+			config: &Config{
+				FindDuplicates: true,
+			},
+			expectedIssues: 1,
+		},
+		{
 			name: "string duplication with ignore",
 			code: `package example
 func example() {
@@ -212,50 +224,93 @@ func example() {
 
 func TestMultipleFilesAnalysis(t *testing.T) {
 	// Test analyzing multiple files at once
-	code1 := `package example
+	tests := []struct {
+		name                    string
+		code1                   string
+		code2                   string
+		config                  *Config
+		expectedIssues          int
+		expectedStr             string
+		expectedOccurrenceCount int
+	}{
+		{
+			name: "duplicate strings",
+			code1: `package example
 func example1() {
 	a := "shared"
 	b := "shared"
 }
-`
-	code2 := `package example
+`,
+			code2: `package example
 func example2() {
 	c := "shared"
 	d := "unique"
 }
-`
-	fset := token.NewFileSet()
-	f1, err := parser.ParseFile(fset, "file1.go", code1, 0)
-	if err != nil {
-		t.Fatalf("Failed to parse test code: %v", err)
+`,
+			config: &Config{
+				MinStringLength: 3,
+				MinOccurrences:  2,
+			},
+			expectedIssues:          1,
+			expectedStr:             "shared",
+			expectedOccurrenceCount: 3,
+		},
+		{
+			name: "duplicate consts in different packages",
+			code1: `package package1
+const ConstA = "shared"
+const ConstB = "shared"
+`,
+			code2: `package package2
+const (
+	ConstC = "shared"
+	ConstD = "shared"
+	ConstE= "unique"
+)`,
+			config: &Config{
+				FindDuplicates: true,
+			},
+			expectedIssues:          3,
+			expectedStr:             "shared",
+			expectedOccurrenceCount: 0,
+		},
 	}
 
-	f2, err := parser.ParseFile(fset, "file2.go", code2, 0)
-	if err != nil {
-		t.Fatalf("Failed to parse test code: %v", err)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 
-	config := &Config{
-		MinStringLength: 3,
-		MinOccurrences:  2,
-	}
+			fset := token.NewFileSet()
+			f1, err := parser.ParseFile(fset, "file1.go", tt.code1, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse test code: %v", err)
+			}
 
-	issues, err := Run([]*ast.File{f1, f2}, fset, config)
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
+			f2, err := parser.ParseFile(fset, "file2.go", tt.code2, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse test code: %v", err)
+			}
 
-	// Should find "shared" appearing 3 times across both files
-	if len(issues) != 1 {
-		t.Fatalf("Expected 1 issue, got %d", len(issues))
-	}
+			issues, err := Run([]*ast.File{f1, f2}, fset, tt.config)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
 
-	issue := issues[0]
-	if issue.Str != "shared" {
-		t.Errorf("Issue.Str = %v, want %v", issue.Str, "shared")
-	}
-	if issue.OccurrencesCount != 3 {
-		t.Errorf("Issue.OccurrencesCount = %v, want 3", issue.OccurrencesCount)
+			// Should find "shared" appearing 3 times across both files
+			if len(issues) != tt.expectedIssues {
+				t.Fatalf("Expected %d issue, got %d", tt.expectedIssues, len(issues))
+			}
+
+			if len(issues) > 0 {
+				issue := issues[0]
+				if issue.Str != tt.expectedStr {
+					t.Errorf("Issue.Str = %v, want %v", issue.Str, tt.expectedStr)
+				}
+
+				if issue.OccurrencesCount != tt.expectedOccurrenceCount {
+					t.Errorf("Issue.OccurrencesCount = %v, want %d", issue.OccurrencesCount, tt.expectedOccurrenceCount)
+				}
+			}
+		})
 	}
 }
 

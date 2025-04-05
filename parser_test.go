@@ -137,6 +137,7 @@ func TestParser_New(t *testing.T) {
 		true, // ignoreTests
 		true, // matchConstant
 		true, // numbers
+		true, //findDuplicates
 		100,  // numberMin
 		500,  // numberMax
 		3,    // minLength
@@ -159,6 +160,9 @@ func TestParser_New(t *testing.T) {
 	}
 	if !p.matchConstant {
 		t.Errorf("New() matchConstant = %v, want %v", p.matchConstant, true)
+	}
+	if !p.findDuplicates {
+		t.Errorf("New() findDuplicates %v, want %v", p.findDuplicates, true)
 	}
 	if p.minLength != 3 {
 		t.Errorf("New() minLength = %v, want %v", p.minLength, 3)
@@ -271,8 +275,9 @@ func test() {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
-				0, // numberMin
-				0, // numberMax
+				false, // TODO: test
+				0,     // numberMin
+				0,     // numberMax
 				tt.minLength,
 				tt.minOccurrences,
 				map[Type]bool{},
@@ -316,6 +321,7 @@ func nested() {
 			false,         // ignoreTests
 			false,         // matchConstant
 			false,         // numbers
+			false,         // findDuplicates
 			0,             // numberMin
 			0,             // numberMax
 			3,             // minLength
@@ -354,6 +360,7 @@ func TestFunction(t *testing.T) {
 		ignoreTests     bool
 		matchConstant   bool
 		numbers         bool
+		findDuplicates  bool
 		minLength       int
 		minOccurrences  int
 		expectedStrings int
@@ -364,6 +371,7 @@ func TestFunction(t *testing.T) {
 			ignoreTests:     false,
 			matchConstant:   false,
 			numbers:         false,
+			findDuplicates:  false,
 			minLength:       3,
 			minOccurrences:  2,
 			expectedStrings: 2, // Should find both "repeated" and "test_repeated"
@@ -374,6 +382,7 @@ func TestFunction(t *testing.T) {
 			ignoreTests:     true,
 			matchConstant:   false,
 			numbers:         false,
+			findDuplicates:  false,
 			minLength:       3,
 			minOccurrences:  2,
 			expectedStrings: 1, // Should only find "repeated"
@@ -389,6 +398,7 @@ func TestFunction(t *testing.T) {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
+				tt.findDuplicates,
 				0, // numberMin
 				0, // numberMax
 				tt.minLength,
@@ -429,6 +439,7 @@ func ignored() {
 			false,       // ignoreTests
 			false,       // matchConstant
 			false,       // numbers
+			false,       // findDuplicates
 			0,           // numberMin
 			0,           // numberMax
 			3,           // minLength
@@ -476,6 +487,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false, // findDuplicates
 				0,
 				0,
 				3,
@@ -500,6 +512,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				0,
 				0,
 				3,
@@ -527,6 +540,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				0,
 				0,
 				3,
@@ -556,6 +570,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 					false,
 					false,
 					true,
+					false,
 					0,
 					0,
 					3,
@@ -706,7 +721,7 @@ func BenchmarkFileReading(b *testing.B) {
 	// Test optimized file reading with different file sizes
 	for i, size := range testSizes {
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
-			p := New("", "", "", false, false, false, 0, 0, 3, 2, map[Type]bool{})
+			p := New("", "", "", false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
 
 			b.ResetTimer()
 			for j := 0; j < b.N; j++ {

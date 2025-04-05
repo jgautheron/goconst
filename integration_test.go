@@ -14,6 +14,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 		numberMin       int
 		numberMax       int
 		minLength       int
+		findDuplicates  bool
 		minOccurrences  int
 		expectedStrings int
 	}{
@@ -80,6 +81,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
+				tt.findDuplicates,
 				tt.numberMin,
 				tt.numberMax,
 				tt.minLength,
@@ -140,6 +142,7 @@ func TestIntegrationExcludeTypes(t *testing.T) {
 				false, // ignoreTests
 				false, // matchConstant
 				false, // numbers
+				false, // findDuplicates
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
