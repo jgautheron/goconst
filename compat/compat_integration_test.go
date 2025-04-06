@@ -46,7 +46,7 @@ func example() {
 
 	// Configure exactly as golangci-lint does
 	cfg := &goconstAPI.Config{
-		IgnoreStrings:     "test-ignore",
+		IgnoreStrings:     []string{"test-ignore"},
 		MatchWithConstants: true,
 		MinStringLength:    3,
 		MinOccurrences:     2,
@@ -96,5 +96,58 @@ func example() {
 			t.Errorf("String %q: got matching const %q, want %q",
 				issue.Str, issue.MatchingConst, expected.matchingConst)
 		}
+	}
+}
+
+func TestMultipleIgnorePatternsIntegration(t *testing.T) {
+	const testCode = `package example
+
+func example() {
+	// These should be ignored by different patterns
+	foo1 := "foobar"
+	foo2 := "foobar"
+	
+	bar1 := "barbaz"
+	bar2 := "barbaz"
+	
+	// These should be detected
+	test1 := "example"
+	test2 := "example"
+}
+`
+
+	// Parse the test code
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	// Configure with multiple ignore patterns
+	cfg := &goconstAPI.Config{
+		IgnoreStrings:     []string{"foo.+", "bar.+"}, // Multiple patterns
+		MinStringLength:    3,
+		MinOccurrences:     2,
+	}
+
+	// Run the analysis
+	issues, err := goconstAPI.Run([]*ast.File{f}, fset, cfg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Verify that "foobar" and "barbaz" are ignored but "example" is found
+	if len(issues) != 1 {
+		t.Errorf("Expected 1 issue, got %d", len(issues))
+		for _, issue := range issues {
+			t.Logf("Found issue: %q with %d occurrences",
+				issue.Str, issue.OccurrencesCount)
+		}
+		return
+	}
+
+	// The only issue should be "example"
+	if issues[0].Str != "example" {
+		t.Errorf("Expected to find 'example', got %q", issues[0].Str)
 	}
 } 

@@ -65,7 +65,7 @@ func example() {
 			config: &Config{
 				MinStringLength: 3,
 				MinOccurrences:  2,
-				IgnoreStrings:   "test",
+				IgnoreStrings:   []string{"test"},
 			},
 			expectedIssues: 1, // Only "another" should be reported
 		},

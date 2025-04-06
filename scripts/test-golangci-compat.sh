@@ -48,6 +48,13 @@ func example() {
     // This should be ignored due to ignore-strings
     skip := "test-ignore"
     skip2 := "test-ignore"
+    
+    // These should be ignored with the multiple pattern test
+    foo1 := "foo-prefix"
+    foo2 := "foo-prefix"
+    
+    bar1 := "bar-prefix"
+    bar2 := "bar-prefix"
 }
 EOF
 
@@ -119,6 +126,30 @@ echo "Test 4: Testing JSON output format..."
 if ! grep -q '"constants":{"test-const":\[.*"Name":"ExistingConst"' "$TEST_DIR/output4.json"; then
     echo "Failed: JSON output should include constants with ExistingConst"
     cat "$TEST_DIR/output4.json"
+    exit 1
+fi
+
+# Test 5: Test with multiple ignore patterns (comma-separated)
+echo "Test 5: Testing multiple ignore patterns..."
+"$GOCONST_BIN" -ignore-strings "test-ignore,foo-prefix,bar-prefix" "$TEST_DIR/testpkg" > "$TEST_DIR/output5.txt"
+if grep -q "test-ignore" "$TEST_DIR/output5.txt"; then
+    echo "Failed: Should NOT detect 'test-ignore' string"
+    cat "$TEST_DIR/output5.txt"
+    exit 1
+fi
+if grep -q "foo-prefix" "$TEST_DIR/output5.txt"; then
+    echo "Failed: Should NOT detect 'foo-prefix' string"
+    cat "$TEST_DIR/output5.txt"
+    exit 1
+fi
+if grep -q "bar-prefix" "$TEST_DIR/output5.txt"; then
+    echo "Failed: Should NOT detect 'bar-prefix' string"
+    cat "$TEST_DIR/output5.txt"
+    exit 1
+fi
+if ! grep -q "duplicate" "$TEST_DIR/output5.txt"; then
+    echo "Failed: Should detect 'duplicate' string"
+    cat "$TEST_DIR/output5.txt"
     exit 1
 fi
 
