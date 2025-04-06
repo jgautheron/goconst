@@ -352,15 +352,15 @@ func BenchmarkFileReadingPerformance(b *testing.B) {
 	for _, size := range sizes {
 		// Create a temporary file
 		content := generateRandomContent(size)
-		tmpFile, err := os.CreateTemp("", "goconst-file-benchmark")
+		tempFile, err := os.CreateTemp("", "goconst-benchmark")
 		if err != nil {
 			b.Fatalf("Failed to create temp file: %v", err)
 		}
-		fileName := tmpFile.Name()
-		if _, err := tmpFile.Write(content); err != nil {
+		fileName := tempFile.Name()
+		if _, err := tempFile.Write(content); err != nil {
 			b.Fatalf("Failed to write to temp file: %v", err)
 		}
-		tmpFile.Close()
+		tempFile.Close()
 
 		// Clean up the temp file when benchmark is done
 		defer os.Remove(fileName)
