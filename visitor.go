@@ -31,7 +31,7 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 	switch t := node.(type) {
 	// Scan for constants in an attempt to match strings with existing constants
 	case *ast.GenDecl:
-		if !v.p.matchConstant {
+		if !v.p.matchConstant && !v.p.findDuplicates {
 			return v
 		}
 		if t.Tok != token.CONST {
@@ -231,10 +231,13 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 	v.p.constMutex.Lock()
 	defer v.p.constMutex.Unlock()
 
-	v.p.consts[internedVal] = ConstType{
-		Name:        internedName,
-		packageName: internedPkg,
-		Position:    v.fileSet.Position(pos),
+	// track this const if this is a new const, or if we are searching for duplicate consts
+	if _, ok := v.p.consts[internedVal]; !ok || v.p.findDuplicates {
+		v.p.consts[internedVal] = append(v.p.consts[internedVal], ConstType{
+			Name:        internedName,
+			packageName: internedPkg,
+			Position:    v.fileSet.Position(pos),
+		})
 	}
 }
 

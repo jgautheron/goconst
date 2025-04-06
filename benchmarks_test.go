@@ -81,6 +81,7 @@ func BenchmarkParseTree(b *testing.B) {
 				false, // ignoreTests
 				false, // matchConstant
 				false, // numbers
+				true,  // findDuplicates
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -104,6 +105,7 @@ func BenchmarkParseTree(b *testing.B) {
 				false, // ignoreTests
 				false, // matchConstant
 				true,  // numbers
+				true,  // findDuplicates
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -127,6 +129,7 @@ func BenchmarkParseTree(b *testing.B) {
 				false, // ignoreTests
 				true,  // matchConstant
 				false, // numbers
+				true,  // findDuplicates
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -156,6 +159,7 @@ func BenchmarkParallelProcessing(b *testing.B) {
 					"",
 					false,
 					false,
+					true,
 					true,
 					0,
 					0,
@@ -304,6 +308,7 @@ func helperFunction%d() string {
 				false,
 				false,
 				true,
+				true,
 				0,
 				0,
 				3,
@@ -331,6 +336,7 @@ func helperFunction%d() string {
 				"",
 				false,
 				false,
+				true,
 				true,
 				0,
 				0,
@@ -377,7 +383,7 @@ func BenchmarkFileReadingPerformance(b *testing.B) {
 
 		// Benchmark the optimized file reading
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
-			parser := New("", "", "", false, false, false, 0, 0, 3, 2, make(map[Type]bool))
+			parser := New("", "", "", false, false, false, true, 0, 0, 3, 2, make(map[Type]bool))
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {

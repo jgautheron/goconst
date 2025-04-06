@@ -3,11 +3,12 @@ package goconst
 import (
 	"go/ast"
 	"go/token"
+	"sort"
 	"strings"
 	"sync"
 )
 
-// Issue represents a finding of duplicated strings or numbers.
+// Issue represents a finding of duplicated strings, numbers, or constants.
 // Each Issue includes the position where it was found, how many times it occurs,
 // the string itself, and any matching constant name.
 type Issue struct {
@@ -15,6 +16,8 @@ type Issue struct {
 	OccurrencesCount int
 	Str              string
 	MatchingConst    string
+	DuplicateConst   string
+	DuplicatePos     token.Position
 }
 
 // IssuePool provides a pool of Issue slices to reduce allocations
@@ -61,6 +64,8 @@ type Config struct {
 	NumberMax int
 	// ExcludeTypes allows excluding specific types of contexts
 	ExcludeTypes map[Type]bool
+	// FindDuplicated constants enables finding constants whose values match existing constants in other packages.
+	FindDuplicates bool
 }
 
 // Run analyzes the provided AST files for duplicated strings or numbers
@@ -74,6 +79,7 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 		cfg.IgnoreTests,
 		cfg.MatchWithConstants,
 		cfg.ParseNumbers,
+		cfg.FindDuplicates,
 		cfg.NumberMin,
 		cfg.NumberMax,
 		cfg.MinStringLength,
@@ -155,6 +161,8 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 		}
 	}
 
+	sort.Strings(stringKeys)
+
 	// Process strings in a predictable order for stable output
 	for _, str := range stringKeys {
 		positions := p.strs[str]
@@ -175,9 +183,9 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 		// Check for matching constants
 		if len(p.consts) > 0 {
 			p.constMutex.RLock()
-			if cst, ok := p.consts[str]; ok {
+			if csts, ok := p.consts[str]; ok && len(csts) > 0 {
 				// const should be in the same package and exported
-				issue.MatchingConst = cst.Name
+				issue.MatchingConst = csts[0].Name
 			}
 			p.constMutex.RUnlock()
 		}
@@ -187,6 +195,37 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 
 	p.stringCountMutex.RUnlock()
 	p.stringMutex.RUnlock()
+
+	// process duplicate constants
+	p.constMutex.RLock()
+
+	// reuse string buffer for const keys
+	stringKeys = stringKeys[:0]
+
+	// Create an array of strings and sort for stable output
+	for str := range p.consts {
+		if len(p.consts[str]) > 1 {
+			stringKeys = append(stringKeys, str)
+		}
+	}
+
+	sort.Strings(stringKeys)
+
+	// report an issue for every duplicated const
+	for _, str := range stringKeys {
+		positions := p.consts[str]
+
+		for i := 1; i < len(positions); i++ {
+			issueBuffer = append(issueBuffer, Issue{
+				Pos:            positions[i].Position,
+				Str:            str,
+				DuplicateConst: positions[0].Name,
+				DuplicatePos:   positions[0].Position,
+			})
+		}
+	}
+
+	p.constMutex.RUnlock()
 
 	// Return string buffer to pool
 	PutStringBuffer(stringKeys)

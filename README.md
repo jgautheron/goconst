@@ -28,6 +28,7 @@ Flags:
   -min-occurrences   report from how many occurrences (default: 2)
   -min-length        only report strings with the minimum given length (default: 3)
   -match-constant    look for existing constants matching the values
+  -find-duplicates   look for constants with identical values
   -numbers           search also for duplicated numbers
   -min          	   minimum value, only works with -numbers
   -max          	   maximum value, only works with -numbers

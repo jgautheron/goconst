@@ -10,10 +10,11 @@ import (
 
 func TestTreeVisitor_Visit(t *testing.T) {
 	tests := []struct {
-		name            string
-		code            string
-		expectedStrings []string
-		excludeTypes    map[Type]bool
+		name                string
+		code                string
+		expectedStrings     []string
+		expectedConstCounts map[string]int
+		excludeTypes        map[Type]bool
 	}{
 		{
 			name: "assignment detection",
@@ -21,8 +22,9 @@ func TestTreeVisitor_Visit(t *testing.T) {
 func example() {
 	a := "test"
 }`,
-			expectedStrings: []string{"test"},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{"test"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
 		},
 		{
 			name: "binary expression detection",
@@ -30,8 +32,9 @@ func example() {
 func example() {
 	if a == "test" {}
 }`,
-			expectedStrings: []string{"test"},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{"test"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
 		},
 		{
 			name: "case clause detection",
@@ -41,8 +44,9 @@ func example() {
 	case "test":
 	}
 }`,
-			expectedStrings: []string{"test"},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{"test"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
 		},
 		{
 			name: "return statement detection",
@@ -50,8 +54,9 @@ func example() {
 func example() string {
 	return "test"
 }`,
-			expectedStrings: []string{"test"},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{"test"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
 		},
 		{
 			name: "function call detection",
@@ -59,8 +64,9 @@ func example() string {
 func example() {
 	println("test")
 }`,
-			expectedStrings: []string{"test"},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{"test"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
 		},
 		{
 			name: "excluded type assignment",
@@ -68,8 +74,9 @@ func example() {
 func example() {
 	a := "test"
 }`,
-			expectedStrings: []string{},
-			excludeTypes:    map[Type]bool{Assignment: true},
+			expectedStrings:     []string{},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{Assignment: true},
 		},
 		{
 			name: "constant detection",
@@ -77,8 +84,21 @@ func example() {
 const MyConst = "test"
 func example() {
 }`,
-			expectedStrings: []string{},
-			excludeTypes:    map[Type]bool{},
+			expectedStrings:     []string{},
+			expectedConstCounts: map[string]int{"test": 1},
+			excludeTypes:        map[Type]bool{},
+		},
+		{
+			name: "detect multiple constants",
+			code: `package example
+const MyConst1 = "test"
+const MyConst2 = "test"
+func example() {
+	const inFunc = "test"
+}`,
+			expectedStrings:     []string{},
+			expectedConstCounts: map[string]int{"test": 3},
+			excludeTypes:        map[Type]bool{},
 		},
 	}
 
@@ -98,6 +118,7 @@ func example() {
 				strs:             Strings{},
 				consts:           Constants{},
 				matchConstant:    true,
+				findDuplicates:   true,
 				stringCount:      make(map[string]int),
 				stringMutex:      sync.RWMutex{},
 				stringCountMutex: sync.RWMutex{},
@@ -113,20 +134,37 @@ func example() {
 			ast.Walk(v, f)
 
 			// Check that we found the expected strings
-			found := make(map[string]bool)
+			foundStrs := make(map[string]bool)
 			for str := range p.strs {
-				found[str] = true
+				foundStrs[str] = true
 			}
 
 			for _, expectedStr := range tt.expectedStrings {
-				if !found[expectedStr] {
+				if !foundStrs[expectedStr] {
 					t.Errorf("Expected string %q not found in results", expectedStr)
 				}
 			}
 
 			// Check that we didn't find any unexpected strings
-			if len(found) != len(tt.expectedStrings) {
-				t.Errorf("Found %d strings, expected %d", len(found), len(tt.expectedStrings))
+			if len(foundStrs) != len(tt.expectedStrings) {
+				t.Errorf("Found %d strings, expected %d", len(foundStrs), len(tt.expectedStrings))
+			}
+
+			// Check that we found the expected constants
+			foundConstCounts := make(map[string]int)
+			for val, consts := range p.consts {
+				foundConstCounts[val] = len(consts)
+			}
+
+			for expectedConst, expectedCount := range tt.expectedConstCounts {
+				if foundConstCounts[expectedConst] != expectedCount {
+					t.Errorf("Expected %d occurrences of const %q, found %d", expectedCount, expectedConst,
+						foundConstCounts[expectedConst])
+				}
+			}
+
+			if len(foundConstCounts) != len(tt.expectedConstCounts) {
+				t.Errorf("Found %d const values, expected %d", len(foundConstCounts), len(tt.expectedConstCounts))
 			}
 		})
 	}

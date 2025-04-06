@@ -133,6 +133,7 @@ type Parser struct {
 	// Meant to be passed via New()
 	path, ignore, ignoreStrings string
 	ignoreTests, matchConstant  bool
+	findDuplicates              bool
 	minLength, minOccurrences   int
 	numberMin, numberMax        int
 	excludeTypes                map[Type]bool
@@ -175,11 +176,12 @@ type Parser struct {
 //   - ignoreTests: whether to ignore test files
 //   - matchConstant: whether to match strings with existing constants
 //   - numbers: whether to analyze number literals
+//   - findDuplicates: whether to find consts with duplicate values
 //   - numberMin/numberMax: range limits for number analysis
 //   - minLength: minimum string length to consider
 //   - minOccurrences: minimum occurrences to report
 //   - excludeTypes: map of context types to exclude
-func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
+func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
 	supportedTokens := []token.Token{token.STRING}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
@@ -228,6 +230,7 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 		ignore:             ignore,
 		ignoreStrings:      ignoreStrings,
 		ignoreTests:        ignoreTests,
+		findDuplicates:     findDuplicates,
 		matchConstant:      matchConstant,
 		minLength:          minLength,
 		minOccurrences:     minOccurrences,
@@ -743,7 +746,7 @@ func (p *Parser) ProcessResults() {
 type Strings map[string][]ExtendedPos
 
 // Constants maps string values to their constant definitions.
-type Constants map[string]ConstType
+type Constants map[string][]ConstType
 
 // ConstType holds information about a constant declaration.
 type ConstType struct {

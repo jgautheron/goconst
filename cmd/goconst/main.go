@@ -26,6 +26,7 @@ Flags:
   -min-occurrences   report from how many occurrences (default: 2)
   -min-length        only report strings with the minimum given length (default: 3)
   -match-constant    look for existing constants matching the strings
+  -find-duplicates   look for constants with identical values
   -numbers           search also for duplicated numbers
   -min               minimum value, only works with -numbers
   -max               maximum value, only works with -numbers
@@ -49,6 +50,7 @@ var (
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMinLength      = flag.Int("min-length", 3, "only report strings with the minimum given length")
 	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
+	flagFindDuplicates = flag.Bool("find-duplicates", false, "look for constants with duplicated values")
 	flagNumbers        = flag.Bool("numbers", false, "search also for duplicated numbers")
 	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
 	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
@@ -98,6 +100,7 @@ func run(path string) (bool, error) {
 		*flagIgnoreTests,
 		*flagMatchConstant,
 		*flagNumbers,
+		*flagFindDuplicates,
 		*flagMin,
 		*flagMax,
 		*flagMinLength,
@@ -139,7 +142,7 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 		for str, item := range strs {
 			for _, xpos := range item {
 				fmt.Printf(
-					`%s:%d:%d:%d other occurrence(s) of "%s" found in: %s`,
+					`%s:%d:%d:%d other occurrence(s) of %q found in: %s`,
 					xpos.Filename,
 					xpos.Line,
 					xpos.Column,
@@ -157,10 +160,19 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 			if len(consts) == 0 {
 				continue
 			}
-			if cst, ok := consts[str]; ok {
+			if csts, ok := consts[str]; ok && len(csts) > 0 {
 				// const should be in the same package and exported
-				fmt.Printf(`A matching constant has been found for "%s": %s`, str, cst.Name)
-				fmt.Printf("\n\t%s\n", cst.String())
+				fmt.Printf(`A matching constant has been found for %q: %s`, str, csts[0].Name)
+				fmt.Printf("\n\t%s\n", csts[0].String())
+			}
+		}
+		for val, csts := range consts {
+			if len(csts) > 1 {
+				fmt.Printf("Duplicate constant(s) with value %q have been found:\n", val)
+
+				for i := 0; i < len(csts); i++ {
+					fmt.Printf("\t%s: %s\n", csts[i].String(), csts[i].Name)
+				}
 			}
 		}
 	default:
