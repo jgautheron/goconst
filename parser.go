@@ -107,7 +107,7 @@ func GetStringBuffer() []string {
 // PutStringBuffer returns a string slice to the pool
 func PutStringBuffer(slice []string) {
 	sliceCopy := make([]string, 0, cap(slice))
-	StringBufferPool.Put(&sliceCopy)
+	StringBufferPool.Put(sliceCopy)
 }
 
 // GetExtendedPosBuffer retrieves an ExtendedPos slice from the pool

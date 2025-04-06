@@ -126,10 +126,11 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		err := enc.Encode(struct {
-			Strings   goconst.Strings   `json:"strings,omitempty"`
-			Constants goconst.Constants `json:"constants,omitempty"`
+			Strings   goconst.Strings   `json:"strings"`
+			Constants goconst.Constants `json:"constants"`
 		}{
-			strs, consts,
+			Strings:   strs,
+			Constants: consts,
 		})
 		if err != nil {
 			return false, err
