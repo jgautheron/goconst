@@ -150,4 +150,82 @@ func example() {
 	if issues[0].Str != "example" {
 		t.Errorf("Expected to find 'example', got %q", issues[0].Str)
 	}
+}
+
+// TestConstExpressionCompatibility verifies support for constant expressions
+func TestConstExpressionCompatibility(t *testing.T) {
+	const testCode = `package example
+
+const (
+	Prefix = "domain.com/"
+	API = Prefix + "api"
+	Web = Prefix + "web"
+)
+
+func example() {
+	// This should match the constant expression
+	path1 := "domain.com/api"
+	path2 := "domain.com/api"
+	
+	// This should also match
+	web1 := "domain.com/web"
+	web2 := "domain.com/web"
+}
+`
+
+	// Parse the test code
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	// Configure with constant expression evaluation enabled
+	cfg := &goconstAPI.Config{
+		MinStringLength:      3,
+		MinOccurrences:       2,
+		MatchWithConstants:   true,
+		EvalConstExpressions: true,
+	}
+
+	// Run the analysis
+	issues, err := goconstAPI.Run([]*ast.File{f}, fset, cfg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Verify we get exactly the issues we expect
+	expectedIssues := map[string]struct {
+		count         int
+		matchingConst string
+	}{
+		"domain.com/api": {2, "API"},
+		"domain.com/web": {2, "Web"},
+	}
+
+	if len(issues) != len(expectedIssues) {
+		t.Errorf("Got %d issues, want %d", len(issues), len(expectedIssues))
+		for _, issue := range issues {
+			t.Logf("Found issue: %q matches constant %q with %d occurrences",
+				issue.Str, issue.MatchingConst, issue.OccurrencesCount)
+		}
+	}
+
+	for _, issue := range issues {
+		expected, ok := expectedIssues[issue.Str]
+		if !ok {
+			t.Errorf("Unexpected issue found: %q", issue.Str)
+			continue
+		}
+
+		if issue.OccurrencesCount != expected.count {
+			t.Errorf("String %q: got %d occurrences, want %d",
+				issue.Str, issue.OccurrencesCount, expected.count)
+		}
+
+		if issue.MatchingConst != expected.matchingConst {
+			t.Errorf("String %q: got matching const %q, want %q",
+				issue.Str, issue.MatchingConst, expected.matchingConst)
+		}
+	}
 } 

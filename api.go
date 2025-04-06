@@ -64,8 +64,10 @@ type Config struct {
 	NumberMax int
 	// ExcludeTypes allows excluding specific types of contexts
 	ExcludeTypes map[Type]bool
-	// FindDuplicated constants enables finding constants whose values match existing constants in other packages.
+	// FindDuplicates enables finding constants whose values match existing constants in other packages.
 	FindDuplicates bool
+	// EvalConstExpressions enables evaluation of constant expressions like Prefix + "suffix"
+	EvalConstExpressions bool
 }
 
 // NewWithIgnorePatterns creates a new instance of the parser with support for multiple ignore patterns.
@@ -73,7 +75,7 @@ type Config struct {
 func NewWithIgnorePatterns(
 	path, ignore string,
 	ignoreStrings []string,
-	ignoreTests, matchConstant, numbers, findDuplicates bool,
+	ignoreTests, matchConstant, numbers, findDuplicates, evalConstExpressions bool,
 	numberMin, numberMax, minLength, minOccurrences int,
 	excludeTypes map[Type]bool) *Parser {
 
@@ -101,6 +103,7 @@ func NewWithIgnorePatterns(
 		matchConstant,
 		numbers,
 		findDuplicates,
+		evalConstExpressions,
 		numberMin,
 		numberMax,
 		minLength,
@@ -120,6 +123,7 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue
 		cfg.MatchWithConstants,
 		cfg.ParseNumbers,
 		cfg.FindDuplicates,
+		cfg.EvalConstExpressions,
 		cfg.NumberMin,
 		cfg.NumberMax,
 		cfg.MinStringLength,

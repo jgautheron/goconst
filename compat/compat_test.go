@@ -25,6 +25,7 @@ func TestGolangCICompatibility(t *testing.T) {
       goconstAPI.Call: true,
     },
     IgnoreTests: false,
+    EvalConstExpressions: true,
   }
 
   // Create a simple test file

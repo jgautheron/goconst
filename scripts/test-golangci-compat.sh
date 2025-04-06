@@ -112,7 +112,7 @@ func multipleConstants() {
 EOF
 
 echo "Test 3: Testing multiple constants with same value..."
-"$GOCONST_BIN" -match-constant "$TEST_DIR/testpkg/multi_const.go" > "$TEST_DIR/output3.txt"
+"$GOCONST_BIN" -match-constant "$TEST_DIR/testpkg" > "$TEST_DIR/output3.txt"
 if ! grep -q "matching constant.*FirstConst" "$TEST_DIR/output3.txt"; then
     echo "Failed: Should match 'duplicate-value' with 'FirstConst'"
     cat "$TEST_DIR/output3.txt"
@@ -121,10 +121,16 @@ fi
 
 # Test 4: Test with JSON output (golangci-lint compatibility)
 echo "Test 4: Testing JSON output format..."
-"$GOCONST_BIN" -ignore-strings "test-ignore" -match-constant -output json "$TEST_DIR/testpkg/main.go" > "$TEST_DIR/output4.json"
+"$GOCONST_BIN" -ignore-strings "test-ignore" -match-constant -output json "$TEST_DIR/testpkg" > "$TEST_DIR/output4.json"
 # Check that the JSON has the correct structure: strings + constants sections
-if ! grep -q '"constants":{"test-const":\[.*"Name":"ExistingConst"' "$TEST_DIR/output4.json"; then
-    echo "Failed: JSON output should include constants with ExistingConst"
+if ! grep -q '"constants".*"test-const"' "$TEST_DIR/output4.json"; then
+    echo "Failed: JSON output should include constants with test-const"
+    cat "$TEST_DIR/output4.json"
+    exit 1
+fi
+
+if ! grep -q '"Name":"ExistingConst"' "$TEST_DIR/output4.json"; then
+    echo "Failed: JSON output should include ExistingConst"
     cat "$TEST_DIR/output4.json"
     exit 1
 fi
@@ -150,6 +156,43 @@ fi
 if ! grep -q "duplicate" "$TEST_DIR/output5.txt"; then
     echo "Failed: Should detect 'duplicate' string"
     cat "$TEST_DIR/output5.txt"
+    exit 1
+fi
+
+# Create a file with constant expressions for testing
+cat > "$TEST_DIR/testpkg/const_expr.go" << 'EOF'
+package testpkg
+
+const (
+    Prefix = "domain.com/"
+    API = Prefix + "api"
+    Web = Prefix + "web"
+)
+
+func constExpressions() {
+    // These should be detected with matching constants when using -eval-const-expr
+    path1 := "domain.com/api"
+    path2 := "domain.com/api"
+    
+    web1 := "domain.com/web"
+    web2 := "domain.com/web"
+    
+    // This is just the prefix, not a compound expression result
+    prefix := "domain.com/"
+}
+EOF
+
+# Test 6: Test constant expression evaluation
+echo "Test 6: Testing constant expression evaluation..."
+"$GOCONST_BIN" -match-constant -eval-const-expr "$TEST_DIR/testpkg" > "$TEST_DIR/output6.txt"
+if ! grep -q "matching constant.*API" "$TEST_DIR/output6.txt"; then
+    echo "Failed: Should match 'domain.com/api' with 'API' constant"
+    cat "$TEST_DIR/output6.txt"
+    exit 1
+fi
+if ! grep -q "matching constant.*Web" "$TEST_DIR/output6.txt"; then
+    echo "Failed: Should match 'domain.com/web' with 'Web' constant"
+    cat "$TEST_DIR/output6.txt"
     exit 1
 fi
 

@@ -40,13 +40,20 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 
 		for _, spec := range t.Specs {
 			val := spec.(*ast.ValueSpec)
-			for i, str := range val.Values {
-				lit, ok := str.(*ast.BasicLit)
-				if !ok || !v.isSupported(lit.Kind) {
+			for i, expr := range val.Values {
+				// Handle basic literals (existing code)
+				if lit, ok := expr.(*ast.BasicLit); ok && v.isSupported(lit.Kind) {
+					v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
 					continue
 				}
-
-				v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
+				
+				// Handle constant expressions
+				if v.p.evalConstExpressions {
+					// Try to evaluate constant expressions using Go's evaluator
+					if strValue := v.evaluateConstExpr(expr); strValue != "" {
+						v.addConstWithValue(val.Names[i].Name, strValue, val.Names[i].Pos())
+					}
+				}
 			}
 		}
 
@@ -248,4 +255,107 @@ func (v *treeVisitor) isSupported(tk token.Token) bool {
 		}
 	}
 	return false
+}
+
+// evaluateConstExpr attempts to evaluate constant expressions.
+// It handles cases like Prefix + "suffix" where both are constants.
+// Returns the string value of the constant expression, or an empty string if not a string expression.
+func (v *treeVisitor) evaluateConstExpr(expr ast.Expr) string {
+	// Handle binary expressions like Prefix + "suffix"
+	if binExpr, ok := expr.(*ast.BinaryExpr); ok && binExpr.Op == token.ADD {
+		// We're only interested in string concatenation
+		leftVal := v.resolveExprToString(binExpr.X)
+		rightVal := v.resolveExprToString(binExpr.Y)
+		
+		// If both sides resolved to strings, combine them
+		if leftVal != "" && rightVal != "" {
+			return leftVal + rightVal
+		}
+	} else {
+		// Handle single identifiers (could be constants)
+		return v.resolveExprToString(expr)
+	}
+	
+	return ""
+}
+
+// resolveExprToString tries to resolve an expression to its string value.
+// Handles identifiers (looking up constants), string literals, and nested expressions.
+func (v *treeVisitor) resolveExprToString(expr ast.Expr) string {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		// Direct string literal
+		if e.Kind == token.STRING {
+			val, err := strconv.Unquote(e.Value)
+			if err == nil {
+				return val
+			}
+			// Fall back to striping quotes manually if unquoting fails
+			if len(e.Value) >= 2 {
+				return e.Value[1 : len(e.Value)-1]
+			}
+		}
+		
+	case *ast.Ident:
+		// Reference to a constant
+		// Check if we've already seen this constant in the current package
+		v.p.constMutex.RLock()
+		defer v.p.constMutex.RUnlock()
+		
+		for val, constList := range v.p.consts {
+			for _, c := range constList {
+				// Match by name and package
+				if c.Name == e.Name && c.packageName == v.packageName {
+					return val
+				}
+			}
+		}
+		
+	case *ast.BinaryExpr:
+		// Recursively evaluate nested expressions
+		if e.Op == token.ADD {
+			left := v.resolveExprToString(e.X)
+			right := v.resolveExprToString(e.Y)
+			if left != "" && right != "" {
+				return left + right
+			}
+		}
+	
+	case *ast.ParenExpr:
+		// Handle parenthesized expressions
+		return v.resolveExprToString(e.X)
+	}
+	
+	return ""
+}
+
+// addConstWithValue adds a constant with an already evaluated string value.
+// This is similar to addConst but skips the unquoting step since the value is already processed.
+func (v *treeVisitor) addConstWithValue(name string, val string, pos token.Pos) {
+	// Skip constants with values that would be filtered anyway
+	if len(val) < v.p.minLength {
+		return
+	}
+
+	if v.ignoreRegex != nil && v.ignoreRegex.MatchString(val) {
+		return
+	}
+
+	// Use interned string to reduce memory usage
+	internedVal := InternString(val)
+	internedName := InternString(name)
+	internedPkg := InternString(v.packageName)
+
+	// Lock to safely update the shared map
+	v.p.constMutex.Lock()
+	defer v.p.constMutex.Unlock()
+
+	// track this const if this is a new const, or if we are searching for duplicate consts
+	if _, ok := v.p.consts[internedVal]; !ok || v.p.findDuplicates {
+		v.p.consts[internedVal] = append(v.p.consts[internedVal], ConstType{
+			Name:        internedName,
+			packageName: internedPkg,
+			Position:    v.fileSet.Position(pos),
+		})
+	}
 }

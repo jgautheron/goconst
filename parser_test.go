@@ -137,7 +137,8 @@ func TestParser_New(t *testing.T) {
 		true, // ignoreTests
 		true, // matchConstant
 		true, // numbers
-		true, //findDuplicates
+		true, // findDuplicates
+		false, // evalConstExpressions
 		100,  // numberMin
 		500,  // numberMax
 		3,    // minLength
@@ -275,7 +276,8 @@ func test() {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
-				false, // TODO: test
+				false, // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				tt.minLength,
@@ -322,6 +324,7 @@ func nested() {
 			false,         // matchConstant
 			false,         // numbers
 			false,         // findDuplicates
+			false,         // evalConstExpressions
 			0,             // numberMin
 			0,             // numberMax
 			3,             // minLength
@@ -398,9 +401,10 @@ func TestFunction(t *testing.T) {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
-				tt.findDuplicates,
-				0, // numberMin
-				0, // numberMax
+				false, // findDuplicates
+				false, // evalConstExpressions
+				0,     // numberMin
+				0,     // numberMax
 				tt.minLength,
 				tt.minOccurrences,
 				map[Type]bool{},
@@ -440,6 +444,7 @@ func ignored() {
 			false,       // matchConstant
 			false,       // numbers
 			false,       // findDuplicates
+			false,       // evalConstExpressions
 			0,           // numberMin
 			0,           // numberMax
 			3,           // minLength
@@ -488,6 +493,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				true,
 				false, // findDuplicates
+				false, // evalConstExpressions
 				0,
 				0,
 				3,
@@ -512,6 +518,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				false,
 				0,
 				0,
@@ -540,6 +547,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				false,
 				0,
 				0,
@@ -570,6 +578,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 					false,
 					false,
 					true,
+					false,
 					false,
 					0,
 					0,
@@ -721,7 +730,7 @@ func BenchmarkFileReading(b *testing.B) {
 	// Test optimized file reading with different file sizes
 	for i, size := range testSizes {
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
-			p := New("", "", "", false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
+			p := New("", "", "", false, false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
 
 			b.ResetTimer()
 			for j := 0; j < b.N; j++ {

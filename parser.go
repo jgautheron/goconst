@@ -138,6 +138,7 @@ type Parser struct {
 	numberMin, numberMax        int
 	excludeTypes                map[Type]bool
 	maxConcurrency              int
+	evalConstExpressions        bool // Whether to evaluate constant expressions
 
 	supportedTokens []token.Token
 
@@ -177,11 +178,12 @@ type Parser struct {
 //   - matchConstant: whether to match strings with existing constants
 //   - numbers: whether to analyze number literals
 //   - findDuplicates: whether to find consts with duplicate values
+//   - evalConstExpressions: whether to evaluate constant expressions
 //   - numberMin/numberMax: range limits for number analysis
 //   - minLength: minimum string length to consider
 //   - minOccurrences: minimum occurrences to report
 //   - excludeTypes: map of context types to exclude
-func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
+func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates, evalConstExpressions bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
 	supportedTokens := []token.Token{token.STRING}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
@@ -204,7 +206,7 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 	if ignoreStrings != "" {
 		ignoreStringsRegex, err = regexp.Compile(ignoreStrings)
 		if err != nil {
-			log.Printf("Warning: Invalid ignoreStrings regex pattern '%s': %v", ignoreStrings, err)
+			log.Printf("Warning: Invalid ignore-strings regex pattern '%s': %v", ignoreStrings, err)
 		}
 	}
 
@@ -226,21 +228,22 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 	fileSet := token.NewFileSet()
 
 	return &Parser{
-		path:               path,
-		ignore:             ignore,
-		ignoreStrings:      ignoreStrings,
-		ignoreTests:        ignoreTests,
-		findDuplicates:     findDuplicates,
-		matchConstant:      matchConstant,
-		minLength:          minLength,
-		minOccurrences:     minOccurrences,
-		numberMin:          numberMin,
-		numberMax:          numberMax,
-		supportedTokens:    supportedTokens,
-		excludeTypes:       excludeTypes,
-		maxConcurrency:     maxConcurrency,
-		ignoreRegex:        ignoreRegex,
-		ignoreStringsRegex: ignoreStringsRegex,
+		path:                path,
+		ignore:              ignore,
+		ignoreStrings:       ignoreStrings,
+		ignoreTests:         ignoreTests,
+		matchConstant:       matchConstant,
+		findDuplicates:      findDuplicates,
+		evalConstExpressions: evalConstExpressions,
+		minLength:           minLength,
+		minOccurrences:      minOccurrences,
+		numberMin:           numberMin,
+		numberMax:           numberMax,
+		supportedTokens:     supportedTokens,
+		excludeTypes:        excludeTypes,
+		maxConcurrency:      maxConcurrency,
+		ignoreRegex:         ignoreRegex,
+		ignoreStringsRegex:  ignoreStringsRegex,
 
 		// Initialize the maps with capacity hints
 		strs:        make(Strings, stringMapCapacity),
@@ -248,8 +251,8 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 		stringCount: make(map[string]int, stringMapCapacity),
 
 		// Default batch processing settings
-		batchSize:      1000,
-		enableBatching: false,
+		batchSize:      50,
+		enableBatching: true,
 
 		// Cache a single FileSet for reuse
 		fileSetCache: fileSet,

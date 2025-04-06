@@ -453,3 +453,72 @@ func multipleContexts() {
 		})
 	}
 }
+
+func TestConstExpressions(t *testing.T) {
+	// Test detecting and matching string constants derived from expressions
+	code := `package example
+
+const (
+	Prefix = "example.com/"
+	Label1 = Prefix + "some_label"
+	Label2 = Prefix + "another_label"
+)
+
+func example() {
+	// These should match the constants from expressions
+	a := "example.com/some_label"
+	b := "example.com/some_label"
+	
+	// This should also match
+	web1 := "example.com/another_label"
+	web2 := "example.com/another_label"
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	config := &Config{
+		MinStringLength:     3,
+		MinOccurrences:      2,
+		MatchWithConstants:  true,
+		EvalConstExpressions: true,
+	}
+
+	issues, err := Run([]*ast.File{f}, fset, config)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// We expect issues for both labels
+	expectedMatches := map[string]string{
+		"example.com/some_label":    "Label1",
+		"example.com/another_label": "Label2",
+	}
+
+	// Check that we have two issues
+	if len(issues) != 2 {
+		t.Errorf("Expected 2 issues, got %d", len(issues))
+		for _, issue := range issues {
+			t.Logf("Found issue: %q matches constant %q with %d occurrences",
+				issue.Str, issue.MatchingConst, issue.OccurrencesCount)
+		}
+		return
+	}
+
+	// Check that each string matches the expected constant
+	for _, issue := range issues {
+		expectedConst, ok := expectedMatches[issue.Str]
+		if !ok {
+			t.Errorf("Unexpected issue for string: %s", issue.Str)
+			continue
+		}
+		
+		if issue.MatchingConst != expectedConst {
+			t.Errorf("For string %q: got matching const %q, want %q",
+				issue.Str, issue.MatchingConst, expectedConst)
+		}
+	}
+}
