@@ -45,7 +45,7 @@ Examples:
 
 var (
 	flagIgnore         = flag.String("ignore", "", "ignore files matching the given regular expression")
-	flagIgnoreStrings  = flag.String("ignore-strings", "", "ignore strings matching the given regular expression")
+	flagIgnoreStrings  = flag.String("ignore-strings", "", "ignore strings matching the given regular expressions (comma separated)")
 	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
 	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
 	flagMinLength      = flag.Int("min-length", 3, "only report strings with the minimum given length")
@@ -93,10 +93,17 @@ func main() {
 // run analyzes a single path for repeated strings that could be constants.
 // It returns true if any issues were found, and an error if the analysis failed.
 func run(path string) (bool, error) {
-	gco := goconst.New(
+	// Parse ignore strings - handling comma-separated values
+	var ignoreStrings []string
+	if *flagIgnoreStrings != "" {
+		// Split by commas but handle escaping
+		ignoreStrings = parseCommaSeparatedValues(*flagIgnoreStrings)
+	}
+
+	gco := goconst.NewWithIgnorePatterns(
 		path,
 		*flagIgnore,
-		*flagIgnoreStrings,
+		ignoreStrings,
 		*flagIgnoreTests,
 		*flagMatchConstant,
 		*flagNumbers,
@@ -113,6 +120,50 @@ func run(path string) (bool, error) {
 	}
 
 	return printOutput(strs, consts, *flagOutput)
+}
+
+// parseCommaSeparatedValues splits a comma-separated string into a slice of strings,
+// handling escaping of commas within values.
+func parseCommaSeparatedValues(input string) []string {
+	if input == "" {
+		return nil
+	}
+
+	// Simple case - no escaping needed
+	if !strings.Contains(input, "\\,") {
+		return strings.Split(input, ",")
+	}
+
+	// Handle escaped commas
+	var result []string
+	var current strings.Builder
+	escaped := false
+
+	for _, char := range input {
+		if escaped {
+			if char == ',' {
+				current.WriteRune(',')
+			} else {
+				current.WriteRune('\\')
+				current.WriteRune(char)
+			}
+			escaped = false
+		} else if char == '\\' {
+			escaped = true
+		} else if char == ',' {
+			result = append(result, current.String())
+			current.Reset()
+		} else {
+			current.WriteRune(char)
+		}
+	}
+
+	// Don't forget the last value
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
 }
 
 // usage prints the usage documentation to the specified writer.

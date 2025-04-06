@@ -46,8 +46,8 @@ func PutIssueBuffer(issues []Issue) {
 
 // Config contains all configuration options for the goconst analyzer.
 type Config struct {
-	// IgnoreStrings is a regular expression to filter strings
-	IgnoreStrings string
+	// IgnoreStrings is a list of regular expressions to filter strings
+	IgnoreStrings []string
 	// IgnoreTests indicates whether test files should be excluded
 	IgnoreTests bool
 	// MatchWithConstants enables matching strings with existing constants
@@ -68,11 +68,51 @@ type Config struct {
 	FindDuplicates bool
 }
 
-// Run analyzes the provided AST files for duplicated strings or numbers
-// according to the provided configuration.
-// It returns a slice of Issue objects containing the findings.
-func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
-	p := New(
+// NewWithIgnorePatterns creates a new instance of the parser with support for multiple ignore patterns.
+// This is an alternative constructor that takes a slice of ignore string patterns.
+func NewWithIgnorePatterns(
+	path, ignore string,
+	ignoreStrings []string,
+	ignoreTests, matchConstant, numbers, findDuplicates bool,
+	numberMin, numberMax, minLength, minOccurrences int,
+	excludeTypes map[Type]bool) *Parser {
+
+	// Join multiple patterns with OR for regex
+	var ignoreStringsPattern string
+	if len(ignoreStrings) > 0 {
+		if len(ignoreStrings) > 1 {
+			// Wrap each pattern in parentheses and join with OR
+			patterns := make([]string, len(ignoreStrings))
+			for i, pattern := range ignoreStrings {
+				patterns[i] = "(" + pattern + ")"
+			}
+			ignoreStringsPattern = strings.Join(patterns, "|")
+		} else {
+			// Single pattern case
+			ignoreStringsPattern = ignoreStrings[0]
+		}
+	}
+
+	return New(
+		path,
+		ignore,
+		ignoreStringsPattern,
+		ignoreTests,
+		matchConstant,
+		numbers,
+		findDuplicates,
+		numberMin,
+		numberMax,
+		minLength,
+		minOccurrences,
+		excludeTypes,
+	)
+}
+
+// RunWithConfig is a convenience function that runs the analysis with a Config object
+// directly supporting multiple ignore patterns.
+func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
+	p := NewWithIgnorePatterns(
 		"",
 		"",
 		cfg.IgnoreStrings,
@@ -232,4 +272,11 @@ func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
 
 	// Don't return the buffer to pool as the caller now owns it
 	return issueBuffer, nil
+}
+
+// Run analyzes the provided AST files for duplicated strings or numbers
+// according to the provided configuration.
+// It returns a slice of Issue objects containing the findings.
+func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
+	return RunWithConfig(files, fset, cfg)
 }
