@@ -36,7 +36,9 @@ func PutIssueBuffer(issues []Issue) {
 		issues[i].MatchingConst = ""
 		issues[i].Str = ""
 	}
-	IssuePool.Put(issues[:0]) // Reset length but keep capacity
+	// Return the slice to the pool
+	issuesCopy := make([]Issue, 0, cap(issues))
+	IssuePool.Put(&issuesCopy)
 }
 
 // Config contains all configuration options for the goconst analyzer.

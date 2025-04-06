@@ -56,7 +56,11 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create a test file with known constants and repeated strings
 	testFile := filepath.Join(tempDir, "test.go")
@@ -86,7 +90,11 @@ func TestInvalidOutputFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	testFile := filepath.Join(tempDir, "simple.go")
 	testContent := `package test
@@ -122,7 +130,11 @@ func TestOutputFormatting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	testFile := filepath.Join(tempDir, "format.go")
 	testContent := `package test
@@ -163,7 +175,9 @@ func test() {
 
 		// Run analysis
 		hasIssues, err := run(tempDir)
-		w.Close()
+		if err := w.Close(); err != nil {
+			t.Errorf("Failed to close writer: %v", err)
+		}
 		out, _ := io.ReadAll(r)
 		output := string(out)
 
@@ -209,7 +223,9 @@ func test() {
 
 		// Run analysis
 		hasIssues, err := run(tempDir)
-		w.Close()
+		if err := w.Close(); err != nil {
+			t.Errorf("Failed to close writer: %v", err)
+		}
 		out, _ := io.ReadAll(r)
 		output := string(out)
 
@@ -241,7 +257,11 @@ func TestGroupedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	testFile := filepath.Join(tempDir, "grouped.go")
 	testContent := `package test
@@ -279,7 +299,9 @@ func test() {
 
 		// Run analysis
 		_, err := run(tempDir)
-		w.Close()
+		if err := w.Close(); err != nil {
+			t.Errorf("Failed to close writer: %v", err)
+		}
 		out, _ := io.ReadAll(r)
 		output := string(out)
 

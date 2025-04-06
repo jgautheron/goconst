@@ -114,7 +114,9 @@ func run(path string) (bool, error) {
 
 // usage prints the usage documentation to the specified writer.
 func usage(out io.Writer) {
-	fmt.Fprintf(out, usageDoc)
+	if _, err := fmt.Fprint(out, usageDoc); err != nil {
+		log.Printf("Error writing usage doc: %v", err)
+	}
 }
 
 // printOutput formats and displays the analysis results based on the specified output format.
@@ -124,8 +126,8 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 	case "json":
 		enc := json.NewEncoder(os.Stdout)
 		err := enc.Encode(struct {
-			Strings   goconst.Strings   `json:"strings,omitEmpty"`
-			Constants goconst.Constants `json:"constants,omitEmpty"`
+			Strings   goconst.Strings   `json:"strings,omitempty"`
+			Constants goconst.Constants `json:"constants,omitempty"`
 		}{
 			strs, consts,
 		})
@@ -161,7 +163,7 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 			}
 		}
 	default:
-		return false, fmt.Errorf(`Unsupported output format: %s`, output)
+		return false, fmt.Errorf("unsupported output format: %s", output)
 	}
 	return len(strs)+len(consts) > 0, nil
 }

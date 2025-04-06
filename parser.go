@@ -95,7 +95,8 @@ func GetByteBuffer() []byte {
 
 // PutByteBuffer returns a byte buffer to the pool
 func PutByteBuffer(buf []byte) {
-	ByteBufferPool.Put(buf[:0]) // Reset length but keep capacity
+	bufCopy := make([]byte, 0, cap(buf))
+	ByteBufferPool.Put(&bufCopy)
 }
 
 // GetStringBuffer retrieves a string slice from the pool
@@ -105,7 +106,8 @@ func GetStringBuffer() []string {
 
 // PutStringBuffer returns a string slice to the pool
 func PutStringBuffer(slice []string) {
-	StringBufferPool.Put(slice[:0]) // Reset length but keep capacity
+	sliceCopy := make([]string, 0, cap(slice))
+	StringBufferPool.Put(&sliceCopy)
 }
 
 // GetExtendedPosBuffer retrieves an ExtendedPos slice from the pool
@@ -115,7 +117,8 @@ func GetExtendedPosBuffer() []ExtendedPos {
 
 // PutExtendedPosBuffer returns an ExtendedPos slice to the pool
 func PutExtendedPosBuffer(slice []ExtendedPos) {
-	ExtendedPosPool.Put(slice[:0]) // Reset length but keep capacity
+	sliceCopy := make([]ExtendedPos, 0, cap(slice))
+	ExtendedPosPool.Put(&sliceCopy)
 }
 
 const (
@@ -596,7 +599,11 @@ func (p *Parser) readFileEfficiently(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			log.Printf("Error closing file: %v", closeErr)
+		}
+	}()
 
 	// Get file size to allocate buffer exactly once
 	info, err := f.Stat()
@@ -728,88 +735,6 @@ func (p *Parser) ProcessResults() {
 			}
 		}
 	}
-}
-
-func (p *Parser) parseDir(dir string) error {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(info os.FileInfo) bool {
-		valid, name := true, info.Name()
-
-		if p.ignoreTests {
-			if strings.HasSuffix(name, testSuffix) {
-				valid = false
-			}
-		}
-
-		if p.ignoreRegex != nil {
-			if p.ignoreRegex.MatchString(dir + name) {
-				valid = false
-			}
-		} else if len(p.ignore) != 0 {
-			// Fallback to non-compiled regex if compilation failed
-			match, err := regexp.MatchString(p.ignore, dir+name)
-			if err != nil {
-				log.Fatal(err)
-				return true
-			}
-			if match {
-				valid = false
-			}
-		}
-
-		return valid
-	}, 0)
-	if err != nil {
-		return err
-	}
-
-	// Process files concurrently with a workgroup
-	var wg sync.WaitGroup
-
-	// Create a flattened list of all files
-	type fileInfo struct {
-		pkg      string
-		fileName string
-		file     *ast.File
-	}
-
-	// Pre-allocate the slice with expected capacity to avoid resizing
-	files := make([]fileInfo, 0, len(pkgs)*10) // Assuming average of 10 files per package
-	for pkgName, pkg := range pkgs {
-		for fn, f := range pkg.Files {
-			files = append(files, fileInfo{
-				pkg:      pkgName,
-				fileName: fn,
-				file:     f,
-			})
-		}
-	}
-
-	// Process files concurrently using a semaphore to limit concurrency
-	sem := make(chan struct{}, p.maxConcurrency)
-	for _, fi := range files {
-		wg.Add(1)
-		sem <- struct{}{} // acquire semaphore
-
-		go func(pkg, fn string, f *ast.File) {
-			defer func() {
-				<-sem // release semaphore
-				wg.Done()
-			}()
-
-			// Create a separate visitor for this file with pre-compiled regex
-			ast.Walk(&treeVisitor{
-				fileSet:     fset,
-				packageName: pkg,
-				fileName:    fn,
-				p:           p,
-				ignoreRegex: p.ignoreStringsRegex,
-			}, f)
-		}(fi.pkg, fi.fileName, fi.file)
-	}
-
-	wg.Wait()
-	return nil
 }
 
 // Strings maps string literals to their positions in the code.

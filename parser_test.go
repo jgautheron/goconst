@@ -209,7 +209,11 @@ func TestParseTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create a test file with known constants and repeated strings
 	testFile := filepath.Join(tempDir, "test.go")
@@ -453,7 +457,11 @@ func BenchmarkFileTraversal(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp directory: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Errorf("Failed to remove temp directory: %v", err)
+		}
+	}()
 
 	// Create a nested directory structure with test files
 	createBenchmarkFiles(b, tempDir, 5, 10, 5)
@@ -666,7 +674,11 @@ func BenchmarkFileReading(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Failed to create temp file: %v", err)
 		}
-		defer os.Remove(tempFile.Name())
+		defer func() {
+			if err := os.Remove(tempFile.Name()); err != nil {
+				b.Errorf("Failed to remove temp file: %v", err)
+			}
+		}()
 		tempFiles[i] = tempFile.Name()
 
 		// Write a large Go file for testing

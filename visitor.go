@@ -8,17 +8,13 @@ import (
 	"strings"
 )
 
-// treeVisitor carries the package name and file name
-// for passing it to the imports map, and the fileSet for
-// retrieving the token.Position.
+// treeVisitor is used to walk the AST and find strings that could be constants.
 type treeVisitor struct {
-	p                     *Parser
-	fileSet               *token.FileSet
-	packageName, fileName string
-	// Pre-compiled regex for early filtering
+	fileSet     *token.FileSet
+	packageName string
+	fileName    string
+	p          *Parser
 	ignoreRegex *regexp.Regexp
-	// Reusable buffer to avoid allocations when unquoting strings
-	buffer []byte
 }
 
 // Visit browses the AST tree for strings that could be potentially

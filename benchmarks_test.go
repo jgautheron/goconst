@@ -185,7 +185,11 @@ func BenchmarkParseDirectoryParallel(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		if err := os.RemoveAll(tempDir); err != nil {
+			b.Errorf("Failed to remove temp dir: %v", err)
+		}
+	}()
 
 	// Create subdirectories to test recursive processing
 	subdirCount := 5
@@ -360,10 +364,16 @@ func BenchmarkFileReadingPerformance(b *testing.B) {
 		if _, err := tempFile.Write(content); err != nil {
 			b.Fatalf("Failed to write to temp file: %v", err)
 		}
-		tempFile.Close()
+		if err := tempFile.Close(); err != nil {
+			b.Fatalf("Failed to close temp file: %v", err)
+		}
 
 		// Clean up the temp file when benchmark is done
-		defer os.Remove(fileName)
+		defer func() {
+			if err := os.Remove(fileName); err != nil {
+				b.Errorf("Failed to remove temp file: %v", err)
+			}
+		}()
 
 		// Benchmark the optimized file reading
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
