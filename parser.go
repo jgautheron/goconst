@@ -39,22 +39,24 @@ var FileReaderPool = sync.Pool{
 // ByteBufferPool is a pool for temporary byte slices
 var ByteBufferPool = sync.Pool{
 	New: func() interface{} {
-		// 8KB initial capacity is a good balance
-		return make([]byte, 0, 8*1024)
+		slice := make([]byte, 0, 8*1024)
+		return &slice
 	},
 }
 
 // StringBufferPool is a pool for string slices
 var StringBufferPool = sync.Pool{
 	New: func() interface{} {
-		return make([]string, 0, 32)
+		slice := make([]string, 0, 32)
+		return &slice
 	},
 }
 
 // ExtendedPosPool is a pool for slices of ExtendedPos
 var ExtendedPosPool = sync.Pool{
 	New: func() interface{} {
-		return make([]ExtendedPos, 0, 8)
+		slice := make([]ExtendedPos, 0, 8)
+		return &slice
 	},
 }
 
@@ -90,7 +92,7 @@ func PutStringBuilder(sb *strings.Builder) {
 
 // GetByteBuffer retrieves a byte buffer from the pool
 func GetByteBuffer() []byte {
-	return ByteBufferPool.Get().([]byte)[:0] // Reset length but keep capacity
+	return (*ByteBufferPool.Get().(*[]byte))[:0] // Reset length but keep capacity
 }
 
 // PutByteBuffer returns a byte buffer to the pool
@@ -101,18 +103,18 @@ func PutByteBuffer(buf []byte) {
 
 // GetStringBuffer retrieves a string slice from the pool
 func GetStringBuffer() []string {
-	return StringBufferPool.Get().([]string)[:0] // Reset length but keep capacity
+	return (*StringBufferPool.Get().(*[]string))[:0] // Reset length but keep capacity
 }
 
 // PutStringBuffer returns a string slice to the pool
 func PutStringBuffer(slice []string) {
 	sliceCopy := make([]string, 0, cap(slice))
-	StringBufferPool.Put(sliceCopy)
+	StringBufferPool.Put(&sliceCopy)
 }
 
 // GetExtendedPosBuffer retrieves an ExtendedPos slice from the pool
 func GetExtendedPosBuffer() []ExtendedPos {
-	return ExtendedPosPool.Get().([]ExtendedPos)[:0] // Reset length but keep capacity
+	return (*ExtendedPosPool.Get().(*[]ExtendedPos))[:0] // Reset length but keep capacity
 }
 
 // PutExtendedPosBuffer returns an ExtendedPos slice to the pool
