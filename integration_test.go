@@ -17,6 +17,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 		findDuplicates  bool
 		minOccurrences  int
 		expectedStrings int
+		expectedMatches map[string]string // string -> expected matching constant
 	}{
 		{
 			name:            "basic duplicate string detection",
@@ -26,7 +27,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numbers:         false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 3, // "should be constant", "another duplicate", "test context"
+			expectedStrings: 7, // All strings that appear at least twice
 		},
 		{
 			name:            "match with constants",
@@ -36,7 +37,13 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numbers:         false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 3, // same strings, but one matches a constant
+			expectedStrings: 7, // All strings that appear at least twice
+			expectedMatches: map[string]string{
+				"single constant":              "SingleConst",
+				"grouped constant":             "GroupedConst1",
+				"duplicate value":              "DuplicateConst1",
+				"special\nvalue\twith\rchars":  "SpecialConst",
+			},
 		},
 		{
 			name:            "include numbers",
@@ -46,7 +53,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numbers:         true,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 4, // the 3 strings + "12345"
+			expectedStrings: 8, // All strings + "12345"
 		},
 		{
 			name:            "filter by number range",
@@ -58,7 +65,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numberMax:       1000,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 3, // 12345 should be filtered out
+			expectedStrings: 7, // All strings, 12345 should be filtered out
 		},
 		{
 			name:            "higher minimum occurrences",
@@ -68,7 +75,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numbers:         false,
 			minLength:       3,
 			minOccurrences:  5, // higher than any string in our testdata
-			expectedStrings: 1, // "test context" appears 5 times
+			expectedStrings: 1, // "test context" appears exactly 5 times
 		},
 	}
 
@@ -89,7 +96,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 				map[Type]bool{},
 			)
 
-			strs, _, err := p.ParseTree()
+			strs, consts, err := p.ParseTree()
 			if err != nil {
 				t.Fatalf("ParseTree() error = %v", err)
 			}
@@ -98,6 +105,25 @@ func TestIntegrationWithTestdata(t *testing.T) {
 				t.Errorf("ParseTree() found %d strings, want %d", len(strs), tt.expectedStrings)
 				for str, occurrences := range strs {
 					t.Logf("Found: %q with %d occurrences", str, len(occurrences))
+				}
+			}
+
+			// Verify constant matches if expected
+			if tt.expectedMatches != nil {
+				for str, wantConst := range tt.expectedMatches {
+					foundConsts, ok := consts[str]
+					if !ok {
+						t.Errorf("String %q not found in constants map", str)
+						continue
+					}
+					if len(foundConsts) == 0 {
+						t.Errorf("No constants found for string %q", str)
+						continue
+					}
+					if foundConsts[0].Name != wantConst {
+						t.Errorf("String %q matched with constant %q, want %q",
+							str, foundConsts[0].Name, wantConst)
+					}
 				}
 			}
 		})
@@ -113,12 +139,12 @@ func TestIntegrationExcludeTypes(t *testing.T) {
 		{
 			name:            "no exclusions",
 			excludeTypes:    map[Type]bool{},
-			expectedStrings: 3,
+			expectedStrings: 7, // All strings that appear at least twice
 		},
 		{
 			name:            "exclude assignments",
 			excludeTypes:    map[Type]bool{Assignment: true},
-			expectedStrings: 1, // After excluding assignments, only "test context" remains
+			expectedStrings: 3, // After excluding assignments, only "test context", "grouped constant", and "matched" remain
 		},
 		{
 			name: "exclude all types",
