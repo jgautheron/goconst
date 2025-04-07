@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"testing"
 
 	goconstAPI "github.com/jgautheron/goconst"
@@ -46,7 +47,7 @@ func example() {
 
 	// Configure exactly as golangci-lint does
 	cfg := &goconstAPI.Config{
-		IgnoreStrings:     []string{"test-ignore"},
+		IgnoreStrings:      []string{"test-ignore"},
 		MatchWithConstants: true,
 		MinStringLength:    3,
 		MinOccurrences:     2,
@@ -57,8 +58,11 @@ func example() {
 		IgnoreTests: false,
 	}
 
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
 	// Run the analysis
-	issues, err := goconstAPI.Run([]*ast.File{f}, fset, cfg)
+	issues, err := goconstAPI.Run([]*ast.File{f}, fset, info, cfg)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -125,13 +129,16 @@ func example() {
 
 	// Configure with multiple ignore patterns
 	cfg := &goconstAPI.Config{
-		IgnoreStrings:     []string{"foo.+", "bar.+"}, // Multiple patterns
-		MinStringLength:    3,
-		MinOccurrences:     2,
+		IgnoreStrings:   []string{"foo.+", "bar.+"}, // Multiple patterns
+		MinStringLength: 3,
+		MinOccurrences:  2,
 	}
 
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
 	// Run the analysis
-	issues, err := goconstAPI.Run([]*ast.File{f}, fset, cfg)
+	issues, err := goconstAPI.Run([]*ast.File{f}, fset, info, cfg)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -188,8 +195,11 @@ func example() {
 		EvalConstExpressions: true,
 	}
 
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
 	// Run the analysis
-	issues, err := goconstAPI.Run([]*ast.File{f}, fset, cfg)
+	issues, err := goconstAPI.Run([]*ast.File{f}, fset, info, cfg)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -228,4 +238,14 @@ func example() {
 				issue.Str, issue.MatchingConst, expected.matchingConst)
 		}
 	}
-} 
+}
+
+func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
+	cfg := &types.Config{
+		Error: func(err error) {},
+	}
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
+	return types.NewChecker(cfg, fset, types.NewPackage("", "example"), info), info
+}

@@ -8,8 +8,10 @@ package goconst
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io"
 	"log"
 	"os"
@@ -141,6 +143,7 @@ type Parser struct {
 	evalConstExpressions        bool // Whether to evaluate constant expressions
 
 	supportedTokens []token.Token
+	supportedKinds  []constant.Kind
 
 	// Internals
 	strs        Strings
@@ -185,8 +188,10 @@ type Parser struct {
 //   - excludeTypes: map of context types to exclude
 func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates, evalConstExpressions bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
 	supportedTokens := []token.Token{token.STRING}
+	supportedKinds := []constant.Kind{constant.String}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
+		supportedKinds = append(supportedKinds, constant.Complex, constant.Float, constant.Int)
 	}
 
 	// Set default concurrency to number of CPUs
@@ -228,22 +233,23 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 	fileSet := token.NewFileSet()
 
 	return &Parser{
-		path:                path,
-		ignore:              ignore,
-		ignoreStrings:       ignoreStrings,
-		ignoreTests:         ignoreTests,
-		matchConstant:       matchConstant,
-		findDuplicates:      findDuplicates,
+		path:                 path,
+		ignore:               ignore,
+		ignoreStrings:        ignoreStrings,
+		ignoreTests:          ignoreTests,
+		matchConstant:        matchConstant,
+		findDuplicates:       findDuplicates,
 		evalConstExpressions: evalConstExpressions,
-		minLength:           minLength,
-		minOccurrences:      minOccurrences,
-		numberMin:           numberMin,
-		numberMax:           numberMax,
-		supportedTokens:     supportedTokens,
-		excludeTypes:        excludeTypes,
-		maxConcurrency:      maxConcurrency,
-		ignoreRegex:         ignoreRegex,
-		ignoreStringsRegex:  ignoreStringsRegex,
+		minLength:            minLength,
+		minOccurrences:       minOccurrences,
+		numberMin:            numberMin,
+		numberMax:            numberMax,
+		supportedTokens:      supportedTokens,
+		supportedKinds:       supportedKinds,
+		excludeTypes:         excludeTypes,
+		maxConcurrency:       maxConcurrency,
+		ignoreRegex:          ignoreRegex,
+		ignoreStringsRegex:   ignoreStringsRegex,
 
 		// Initialize the maps with capacity hints
 		strs:        make(Strings, stringMapCapacity),
@@ -318,9 +324,9 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 		ast.Walk(&treeVisitor{
 			fileSet:     fset,
 			packageName: f.Name.Name,
-			fileName:    rootPath,
 			p:           p,
 			ignoreRegex: p.ignoreStringsRegex,
+			typeInfo:
 		}, f)
 
 		// Post-process and filter results
@@ -415,10 +421,23 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 	// Reuse FileSet in each worker
 	fset := p.getFileSet()
 
+	type parsedFile struct {
+		pkgName string
+		f       *ast.File
+	}
+	parsedFilesChan := make(chan parsedFile)
+
 	for i := 0; i < p.maxConcurrency; i++ {
 		parserWg.Add(1)
-		go func() {
-			defer parserWg.Done()
+		go func(id int) {
+			defer func() {
+				parserWg.Done()
+				// first worker waits and closes channel
+				if id == 0 {
+					parserWg.Wait()
+					close(parsedFilesChan)
+				}
+			}()
 
 			for filePath := range filesChan {
 				// Parse a single file
@@ -436,21 +455,70 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 
 				// Process the file
 				pkgName := f.Name.Name
-				ast.Walk(&treeVisitor{
-					fileSet:     fset,
-					packageName: pkgName,
-					fileName:    filePath,
-					p:           p,
-					ignoreRegex: p.ignoreStringsRegex,
-				}, f)
+				parsedFilesChan <- parsedFile{pkgName, f}
 			}
-		}()
+		}(i)
 	}
+
+	// read all parsed files into packgageFiles map
+	packageFiles := map[string][]*ast.File{}
+	var readerWg sync.WaitGroup
+	readerWg.Add(1)
+	go func() {
+		defer readerWg.Done()
+		for parsed := range parsedFilesChan {
+			packageFiles[parsed.pkgName] = append(packageFiles[parsed.pkgName], parsed.f)
+		}
+	}()
 
 	// Wait for all file collection to complete
 	wg.Wait()
-	// Wait for all file processing to complete
+	// Wait for all file parsing to complete
 	parserWg.Wait()
+	// Wait for  to complete
+	readerWg.Wait()
+
+	// Start type checker
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
+
+	packages := map[string]*types.Package{}
+	chkConfig := &types.Config{
+		Error: func(err error) {}, // type checking is only used to evaluat. constant expressions, so we ignore most errors
+	}
+	for pkgName, files := range packageFiles {
+		_, ok := packages[pkgName]
+		if !ok {
+			packages[pkgName] = types.NewPackage("", pkgName)
+		}
+		chk := types.NewChecker(chkConfig, fset, packages[pkgName], info)
+
+		if err := chk.Files(files); err != nil {
+			continue // ignore any constant expressions with type checking errors.
+		}
+	}
+
+	// Visit all files
+	var visitorWg sync.WaitGroup
+
+	for pkgName, files := range packageFiles {
+		for _, f := range files {
+			visitorWg.Add(1)
+			go func(pkgName string, f *ast.File) {
+				defer visitorWg.Done()
+				ast.Walk(&treeVisitor{
+					fileSet:     fset,
+					typeInfo:    info,
+					packageName: pkgName,
+					p:           p,
+					ignoreRegex: p.ignoreStringsRegex,
+				}, f)
+			}(pkgName, f)
+		}
+	}
+
+	visitorWg.Wait()
 
 	// Post-process and filter results
 	p.ProcessResults()
@@ -569,7 +637,6 @@ func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Con
 					ast.Walk(&treeVisitor{
 						fileSet:     fset,
 						packageName: pkgName,
-						fileName:    filePath,
 						p:           p,
 						ignoreRegex: p.ignoreStringsRegex,
 					}, f)

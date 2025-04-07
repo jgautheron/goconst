@@ -173,10 +173,10 @@ func constExpressions() {
     // These should be detected with matching constants when using -eval-const-expr
     path1 := "domain.com/api"
     path2 := "domain.com/api"
-    
+
     web1 := "domain.com/web"
     web2 := "domain.com/web"
-    
+
     // This is just the prefix, not a compound expression result
     prefix := "domain.com/"
 }

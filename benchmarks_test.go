@@ -42,7 +42,6 @@ func BenchmarkParseSampleFile(b *testing.B) {
 			p:           p,
 			fileSet:     fset,
 			packageName: "testdata",
-			fileName:    "testdata/sample.go",
 		}
 
 		ast.Walk(v, f)
@@ -64,9 +63,13 @@ func BenchmarkRun(b *testing.B) {
 		EvalConstExpressions: false, // Disable for benchmark
 	}
 
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
-		_, err := Run([]*ast.File{f}, fset, config)
+		_, err := Run([]*ast.File{f}, fset, info, config)
 		if err != nil {
 			b.Fatalf("Run() error = %v", err)
 		}

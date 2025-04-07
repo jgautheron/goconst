@@ -9,10 +9,10 @@ import (
 
 func TestMatchConstant(t *testing.T) {
 	tests := []struct {
-		name           string
-		code           string
-		wantIssues    int
-		wantMatches   map[string]string // string -> matching const name
+		name        string
+		code        string
+		wantIssues  int
+		wantMatches map[string]string // string -> matching const name
 	}{
 		{
 			name: "basic constant match",
@@ -143,7 +143,10 @@ func example() {
 				MatchWithConstants: true,
 			}
 
-			issues, err := Run([]*ast.File{f}, fset, config)
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
+
+			issues, err := Run([]*ast.File{f}, fset, info, config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -159,7 +162,7 @@ func example() {
 			for _, issue := range issues {
 				if wantConst, ok := tt.wantMatches[issue.Str]; ok {
 					if issue.MatchingConst != wantConst {
-						t.Errorf("String %q matched with constant %q, want %q", 
+						t.Errorf("String %q matched with constant %q, want %q",
 							issue.Str, issue.MatchingConst, wantConst)
 					}
 				} else {
@@ -202,7 +205,10 @@ func main() {
 		MatchWithConstants: true,
 	}
 
-	issues, err := Run(astFiles, fset, config)
+	chkr, info := checker(fset)
+	_ = chkr.Files(astFiles)
+
+	issues, err := Run(astFiles, fset, info, config)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -230,11 +236,11 @@ func main() {
 
 func TestMatchConstantExpressions(t *testing.T) {
 	tests := []struct {
-		name           string
-		code           string
-		evalExpr       bool
-		wantIssues     int
-		wantMatches    map[string]string // string -> matching const name
+		name        string
+		code        string
+		evalExpr    bool
+		wantIssues  int
+		wantMatches map[string]string // string -> matching const name
 	}{
 		{
 			name: "simple string concatenation",
@@ -246,7 +252,7 @@ const (
 func example() {
 	path := "api.users"
 }`,
-			evalExpr: true,
+			evalExpr:   true,
 			wantIssues: 1,
 			wantMatches: map[string]string{
 				"api.users": "Endpoint",
@@ -263,7 +269,7 @@ const (
 func example() {
 	url := "example.com/api/v1"
 }`,
-			evalExpr: true,
+			evalExpr:   true,
 			wantIssues: 1,
 			wantMatches: map[string]string{
 				"example.com/api/v1": "FullURL",
@@ -279,7 +285,7 @@ const (
 func example() {
 	msg := "ERROR: invalid\ninput"
 }`,
-			evalExpr: true,
+			evalExpr:   true,
 			wantIssues: 1,
 			wantMatches: map[string]string{
 				"ERROR: invalid\ninput": "ErrorMsg",
@@ -297,7 +303,7 @@ const (
 func example() {
 	val := "abcd"
 }`,
-			evalExpr: true,
+			evalExpr:   true,
 			wantIssues: 1,
 			wantMatches: map[string]string{
 				"abcd": "D",
@@ -313,8 +319,8 @@ const (
 func example() {
 	path := "api.users"
 }`,
-			evalExpr: false,
-			wantIssues: 1,  // Still detects the string, but no matching constant
+			evalExpr:   false,
+			wantIssues: 1, // Still detects the string, but no matching constant
 			wantMatches: map[string]string{
 				"api.users": "", // Empty string indicates no constant match
 			},
@@ -330,7 +336,7 @@ const (
 func example() {
 	val := "abc"
 }`,
-			evalExpr: true,
+			evalExpr:   true,
 			wantIssues: 1,
 			wantMatches: map[string]string{
 				"abc": "Combined",
@@ -353,7 +359,10 @@ func example() {
 				EvalConstExpressions: tt.evalExpr,
 			}
 
-			issues, err := Run([]*ast.File{f}, fset, config)
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
+
+			issues, err := Run([]*ast.File{f}, fset, info, config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -370,7 +379,7 @@ func example() {
 			for _, issue := range issues {
 				if wantConst, ok := tt.wantMatches[issue.Str]; ok {
 					if issue.MatchingConst != wantConst {
-						t.Errorf("String %q matched with constant %q, want %q", 
+						t.Errorf("String %q matched with constant %q, want %q",
 							issue.Str, issue.MatchingConst, wantConst)
 					}
 				} else {
@@ -379,4 +388,4 @@ func example() {
 			}
 		})
 	}
-} 
+}

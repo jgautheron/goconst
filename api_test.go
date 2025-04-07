@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"testing"
 )
 
@@ -47,6 +48,19 @@ func example() {
 const ConstA = "test"
 func example() {
 	const ConstB = "test"
+}`,
+			config: &Config{
+				FindDuplicates: true,
+			},
+			expectedIssues: 1,
+		},
+		{
+			name: "duplicate computed consts",
+			code: `package example
+const ConstA = "te"
+const Test = "test"
+func example() {
+	const ConstB = ConstA + "st"
 }`,
 			config: &Config{
 				FindDuplicates: true,
@@ -164,7 +178,10 @@ func example() {
 				t.Fatalf("Failed to parse test code: %v", err)
 			}
 
-			issues, err := Run([]*ast.File{f}, fset, tt.config)
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
+
+			issues, err := Run([]*ast.File{f}, fset, info, tt.config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -201,7 +218,10 @@ func example() {
 		MatchWithConstants: true,
 	}
 
-	issues, err := Run([]*ast.File{f}, fset, config)
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, config)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -256,16 +276,16 @@ func example2() {
 			expectedOccurrenceCount: 3,
 		},
 		{
-			name: "duplicate consts in different packages",
-			code1: `package package1
+			name: "duplicate consts in different files",
+			code1: `package example
 const ConstA = "shared"
 const ConstB = "shared"
 `,
-			code2: `package package2
+			code2: `package example
 const (
 	ConstC = "shared"
 	ConstD = "shared"
-	ConstE= "unique"
+	ConstE = "unique"
 )`,
 			config: &Config{
 				FindDuplicates: true,
@@ -290,7 +310,10 @@ const (
 				t.Fatalf("Failed to parse test code: %v", err)
 			}
 
-			issues, err := Run([]*ast.File{f1, f2}, fset, tt.config)
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f1, f2})
+
+			issues, err := Run([]*ast.File{f1, f2}, fset, info, tt.config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -348,8 +371,10 @@ func allContexts(param string) string {
 		MinStringLength: 3,
 		MinOccurrences:  2,
 	}
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
 
-	issues, err := Run([]*ast.File{f}, fset, config)
+	issues, err := Run([]*ast.File{f}, fset, info, config)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -429,8 +454,10 @@ func multipleContexts() {
 				MinOccurrences:  2,
 				ExcludeTypes:    tt.excludeTypes,
 			}
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
 
-			issues, err := Run([]*ast.File{f}, fset, config)
+			issues, err := Run([]*ast.File{f}, fset, info, config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -481,13 +508,15 @@ func example() {
 	}
 
 	config := &Config{
-		MinStringLength:     3,
-		MinOccurrences:      2,
-		MatchWithConstants:  true,
+		MinStringLength:      3,
+		MinOccurrences:       2,
+		MatchWithConstants:   true,
 		EvalConstExpressions: true,
 	}
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
 
-	issues, err := Run([]*ast.File{f}, fset, config)
+	issues, err := Run([]*ast.File{f}, fset, info, config)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -515,10 +544,20 @@ func example() {
 			t.Errorf("Unexpected issue for string: %s", issue.Str)
 			continue
 		}
-		
+
 		if issue.MatchingConst != expectedConst {
 			t.Errorf("For string %q: got matching const %q, want %q",
 				issue.Str, issue.MatchingConst, expectedConst)
 		}
 	}
+}
+
+func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
+	cfg := &types.Config{
+		Error: func(err error) {},
+	}
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
+	return types.NewChecker(cfg, fset, types.NewPackage("", "example"), info), info
 }

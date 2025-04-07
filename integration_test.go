@@ -44,12 +44,12 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			minOccurrences:  2,
 			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
 			expectedMatches: map[string]string{
-				"single constant":              "SingleConst",
-				"grouped constant":             "GroupedConst1",
-				"duplicate value":              "DuplicateConst1",
-				"special\nvalue\twith\rchars":  "SpecialConst",
-				"example.com/api":              "API",       // from const_expressions.go
-				"example.com/web":              "Web",       // from const_expressions.go
+				"single constant":             "SingleConst",
+				"grouped constant":            "GroupedConst1",
+				"duplicate value":             "DuplicateConst1",
+				"special\nvalue\twith\rchars": "SpecialConst",
+				"example.com/api":             "API", // from const_expressions.go
+				"example.com/web":             "Web", // from const_expressions.go
 			},
 		},
 		{
