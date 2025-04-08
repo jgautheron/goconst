@@ -430,17 +430,24 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 		}
 	}()
 
+	// Read and parse files concurrently
 	fset, filesByPackage := p.parseConcurrently(filesChan)
 
 	wg.Wait()
 
-	// TODO: what type-checking information is needed for correctly evaluating cross-package consts?
+	// Type checking must be performed serially to avoid data races.
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
 	}
 
-	// run type-checker
-	p.typeCheckConcurrently(fset, info, filesByPackage)
+	chkConfig := &types.Config{
+		Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
+	}
+
+	for pkgName, files := range filesByPackage {
+		chk := types.NewChecker(chkConfig, fset, types.NewPackage("", pkgName), info)
+		_ = chk.Files(files)
+	}
 
 	// Visit all files
 	p.visitConcurrently(fset, info, filesByPackage)
@@ -511,38 +518,6 @@ func (p *Parser) parseConcurrently(filesChan <-chan string) (*token.FileSet, map
 	readerWg.Wait()
 
 	return fset, packageFiles
-}
-
-func (p *Parser) typeCheckConcurrently(fset *token.FileSet, info *types.Info, filesByPackage map[string][]*ast.File) {
-	type parsedPackage struct {
-		pkgName string
-		files   []*ast.File
-	}
-	pkgChan := make(chan parsedPackage, chanSize)
-
-	chkConfig := &types.Config{
-		Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
-	}
-
-	var wg sync.WaitGroup
-	for i := 0; i < p.maxConcurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for pkg := range pkgChan {
-				chk := types.NewChecker(chkConfig, fset, types.NewPackage("", pkg.pkgName), info)
-
-				_ = chk.Files(pkg.files)
-			}
-		}()
-	}
-
-	for pkgName, files := range filesByPackage {
-		pkgChan <- parsedPackage{pkgName: pkgName, files: files}
-	}
-	close(pkgChan)
-
-	wg.Wait()
 }
 
 // visitConcurrently visits all files in filesByPackage on a worker pool goroutines.
@@ -698,16 +673,23 @@ func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Con
 		}
 		close(fileChan) // safe to close since len(fileChan) == len(batch)
 
+		// Parse files concurrently
 		fset, filesByPackage := p.parseConcurrently(fileChan)
 
+		// Type check -- must be processed serially to avoid data races
 		info := &types.Info{
 			Types: make(map[ast.Expr]types.TypeAndValue),
 		}
 
-		// run type-checker
-		p.typeCheckConcurrently(fset, info, filesByPackage)
+		chkConfig := &types.Config{
+			Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
+		}
+		for pkgName, files := range filesByPackage {
+			chk := types.NewChecker(chkConfig, fset, types.NewPackage("", pkgName), info)
+			_ = chk.Files(files)
+		}
 
-		// Visit all files
+		// Visit all files concurrently
 		p.visitConcurrently(fset, info, filesByPackage)
 
 		// Optional: Run garbage collection between batches for very large codebases
