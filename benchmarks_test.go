@@ -31,6 +31,7 @@ func BenchmarkParseSampleFile(b *testing.B) {
 			strs:             Strings{},
 			consts:           Constants{},
 			matchConstant:    true,
+			evalConstExpressions: false, // Disable for benchmark
 			stringCount:      make(map[string]int),
 			stringMutex:      sync.RWMutex{},
 			stringCountMutex: sync.RWMutex{},
@@ -41,7 +42,6 @@ func BenchmarkParseSampleFile(b *testing.B) {
 			p:           p,
 			fileSet:     fset,
 			packageName: "testdata",
-			fileName:    "testdata/sample.go",
 		}
 
 		ast.Walk(v, f)
@@ -60,11 +60,16 @@ func BenchmarkRun(b *testing.B) {
 		MinStringLength:    3,
 		MinOccurrences:     2,
 		MatchWithConstants: true,
+		EvalConstExpressions: false, // Disable for benchmark
 	}
 
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
-		_, err := Run([]*ast.File{f}, fset, config)
+		_, err := Run([]*ast.File{f}, fset, info, config)
 		if err != nil {
 			b.Fatalf("Run() error = %v", err)
 		}
@@ -82,6 +87,7 @@ func BenchmarkParseTree(b *testing.B) {
 				false, // matchConstant
 				false, // numbers
 				true,  // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -106,6 +112,7 @@ func BenchmarkParseTree(b *testing.B) {
 				false, // matchConstant
 				true,  // numbers
 				true,  // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -130,6 +137,7 @@ func BenchmarkParseTree(b *testing.B) {
 				true,  // matchConstant
 				false, // numbers
 				true,  // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength
@@ -145,8 +153,8 @@ func BenchmarkParseTree(b *testing.B) {
 	})
 }
 
-// BenchmarkParallelProcessing tests the parallel implementation with various concurrency levels.
-func BenchmarkParallelProcessing(b *testing.B) {
+// BenchmarkParallelProcessing2 tests the parallel implementation with various concurrency levels.
+func BenchmarkParallelProcessing2(b *testing.B) {
 	// Test with different concurrency levels
 	concurrencyLevels := []int{1, 2, 4, 8, runtime.NumCPU()}
 
@@ -161,6 +169,7 @@ func BenchmarkParallelProcessing(b *testing.B) {
 					false,
 					true,
 					true,
+					false, // evalConstExpressions
 					0,
 					0,
 					3,
@@ -309,6 +318,7 @@ func helperFunction%d() string {
 				false,
 				true,
 				true,
+				false, // evalConstExpressions
 				0,
 				0,
 				3,
@@ -338,6 +348,7 @@ func helperFunction%d() string {
 				false,
 				true,
 				true,
+				false, // evalConstExpressions
 				0,
 				0,
 				3,
@@ -383,7 +394,7 @@ func BenchmarkFileReadingPerformance(b *testing.B) {
 
 		// Benchmark the optimized file reading
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
-			parser := New("", "", "", false, false, false, true, 0, 0, 3, 2, make(map[Type]bool))
+			parser := New("", "", "", false, false, false, true, false, 0, 0, 3, 2, make(map[Type]bool))
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
@@ -427,4 +438,251 @@ func generateRandomContent(size int) []byte {
 	}
 
 	return content
+}
+
+func BenchmarkParseTreeMinimal(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		// Minimal configuration
+		p := New(
+			"testdata",
+			"",
+			"",
+			false,
+			false,
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			map[Type]bool{},
+		)
+		_, _, err := p.ParseTree()
+		if err != nil {
+			b.Fatalf("Error parsing tree: %v", err)
+		}
+	}
+}
+
+func BenchmarkParseTreeWithNumbers(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		// Numbers enabled
+		p := New(
+			"testdata",
+			"",
+			"",
+			false,
+			false,
+			true, // Parse numbers
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			map[Type]bool{},
+		)
+		_, _, err := p.ParseTree()
+		if err != nil {
+			b.Fatalf("Error parsing tree: %v", err)
+		}
+	}
+}
+
+func BenchmarkParseTreeWithConstMatch(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		// Match constants enabled
+		p := New(
+			"testdata",
+			"",
+			"",
+			false,
+			true, // Match constants
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			map[Type]bool{},
+		)
+		_, _, err := p.ParseTree()
+		if err != nil {
+			b.Fatalf("Error parsing tree: %v", err)
+		}
+	}
+}
+
+// BenchmarkStringInterning benchmarks the performance improvement from string interning
+func BenchmarkStringInterning(b *testing.B) {
+	b.ReportAllocs()
+	
+	// Generate some test data
+	testData := make([]string, 100)
+	for i := 0; i < 100; i++ {
+		// Create strings that will sometimes be duplicates
+		testData[i] = fmt.Sprintf("test-string-%d", i%20)
+	}
+	
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		p := New(
+			"",
+			"",
+			"",
+			false,
+			false,
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			nil,
+		)
+		
+		// Simulate processing these strings
+		for _, s := range testData {
+			// Intern the string
+			interned := InternString(s)
+			
+			// Do something with the interned string to prevent optimization
+			if len(interned) > 0 {
+				p.stringCount[interned]++
+			}
+		}
+	}
+}
+
+// BenchmarkParseTreeLargeCodebase benchmarks parsing a larger codebase
+func BenchmarkParseTreeLargeCodebase(b *testing.B) {
+	// Skip if not running in CI or explicitly requested with BENCH_LARGE=1
+	if os.Getenv("CI") != "true" && os.Getenv("BENCH_LARGE") != "1" {
+		b.Skip("Skipping large benchmark; run with BENCH_LARGE=1 to enable")
+	}
+	
+	// Use the parent directory of the current workspace as test data
+	// This gives us a real-world codebase to analyze
+	wd, err := os.Getwd()
+	if err != nil {
+		b.Fatalf("Failed to get working directory: %v", err)
+	}
+	
+	// Go up one level to get parent directory
+	testPath := filepath.Dir(wd)
+	
+	b.ReportAllocs()
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		p := New(
+			testPath,
+			"",
+			"",
+			true, // Ignore tests to reduce volume
+			false,
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			nil, // No type exclusions
+		)
+		_, _, err := p.ParseTree()
+		if err != nil {
+			b.Fatalf("Error parsing tree: %v", err)
+		}
+	}
+}
+
+// BenchmarkStringPooling benchmarks the performance impact of string pooling
+func BenchmarkStringPooling(b *testing.B) {
+	b.ReportAllocs()
+	
+	// Create a set of strings to process with some duplication
+	testStrings := make([]string, 10000)
+	for i := 0; i < len(testStrings); i++ {
+		testStrings[i] = fmt.Sprintf("test-string-%d", i%500)
+	}
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		p := New(
+			"",
+			"",
+			"",
+			false,
+			false,
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			nil, // No type exclusions
+		)
+		
+		// Simulate processing all strings
+		for _, s := range testStrings {
+			// Use intern to ensure string deduplication
+			internedString := InternString(s)
+			p.stringCount[internedString]++
+			
+			// Simulate position tracking (simplified)
+			if _, ok := p.strs[internedString]; !ok {
+				p.strs[internedString] = make([]ExtendedPos, 0, 4)
+			}
+		}
+	}
+}
+
+// BenchmarkParallelProcessing benchmarks the performance of parallel file processing
+func BenchmarkParallelProcessing(b *testing.B) {
+	// Use the testdata directory which should have multiple files
+	testPath := filepath.Join(".", "testdata")
+	
+	// Ensure the test directory exists
+	if _, err := os.Stat(testPath); os.IsNotExist(err) {
+		b.Skipf("Test data directory %q does not exist", testPath)
+	}
+	
+	b.ReportAllocs()
+	
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		p := New(
+			testPath,
+			"",
+			"",
+			false,
+			false,
+			false,
+			false,
+			false, // evalConstExpressions
+			0,
+			0,
+			3,
+			2,
+			map[Type]bool{},
+		)
+
+		// Set the concurrency level
+		p.SetConcurrency(runtime.NumCPU())
+
+		b.StartTimer()
+		_, _, err := p.ParseTree()
+		if err != nil {
+			b.Fatalf("parse failed: %v", err)
+		}
+	}
 }

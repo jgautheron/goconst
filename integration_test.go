@@ -15,6 +15,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 		numberMax       int
 		minLength       int
 		findDuplicates  bool
+		evalConstExpr   bool
 		minOccurrences  int
 		expectedStrings int
 		expectedMatches map[string]string // string -> expected matching constant
@@ -25,9 +26,11 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			ignoreTests:     false,
 			matchConstant:   false,
 			numbers:         false,
+			findDuplicates:  false,
+			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 7, // All strings that appear at least twice
+			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
 		},
 		{
 			name:            "match with constants",
@@ -35,14 +38,18 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			ignoreTests:     false,
 			matchConstant:   true,
 			numbers:         false,
+			findDuplicates:  false,
+			evalConstExpr:   true, // Enable constant expression evaluation for this test
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 7, // All strings that appear at least twice
+			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
 			expectedMatches: map[string]string{
-				"single constant":              "SingleConst",
-				"grouped constant":             "GroupedConst1",
-				"duplicate value":              "DuplicateConst1",
-				"special\nvalue\twith\rchars":  "SpecialConst",
+				"single constant":             "SingleConst",
+				"grouped constant":            "GroupedConst1",
+				"duplicate value":             "DuplicateConst1",
+				"special\nvalue\twith\rchars": "SpecialConst",
+				"example.com/api":             "API", // from const_expressions.go
+				"example.com/web":             "Web", // from const_expressions.go
 			},
 		},
 		{
@@ -51,9 +58,11 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			ignoreTests:     false,
 			matchConstant:   false,
 			numbers:         true,
+			findDuplicates:  false,
+			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 8, // All strings + "12345"
+			expectedStrings: 10, // All strings + "12345" (8 original + 2 from const_expressions.go)
 		},
 		{
 			name:            "filter by number range",
@@ -63,9 +72,11 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			numbers:         true,
 			numberMin:       100,
 			numberMax:       1000,
+			findDuplicates:  false,
+			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 7, // All strings, 12345 should be filtered out
+			expectedStrings: 9, // All strings, 12345 should be filtered out (7 original + 2 from const_expressions.go)
 		},
 		{
 			name:            "higher minimum occurrences",
@@ -73,6 +84,8 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			ignoreTests:     false,
 			matchConstant:   false,
 			numbers:         false,
+			findDuplicates:  false,
+			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  5, // higher than any string in our testdata
 			expectedStrings: 1, // "test context" appears exactly 5 times
@@ -89,6 +102,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 				tt.matchConstant,
 				tt.numbers,
 				tt.findDuplicates,
+				tt.evalConstExpr,
 				tt.numberMin,
 				tt.numberMax,
 				tt.minLength,
@@ -139,12 +153,12 @@ func TestIntegrationExcludeTypes(t *testing.T) {
 		{
 			name:            "no exclusions",
 			excludeTypes:    map[Type]bool{},
-			expectedStrings: 7, // All strings that appear at least twice
+			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
 		},
 		{
 			name:            "exclude assignments",
 			excludeTypes:    map[Type]bool{Assignment: true},
-			expectedStrings: 3, // After excluding assignments, only "test context", "grouped constant", and "matched" remain
+			expectedStrings: 3, // After excluding assignments
 		},
 		{
 			name: "exclude all types",
@@ -169,6 +183,7 @@ func TestIntegrationExcludeTypes(t *testing.T) {
 				false, // matchConstant
 				false, // numbers
 				false, // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				3,     // minLength

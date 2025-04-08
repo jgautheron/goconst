@@ -134,14 +134,15 @@ func TestParser_New(t *testing.T) {
 		"testPath",
 		"testIgnore",
 		"testIgnoreStrings",
-		true, // ignoreTests
-		true, // matchConstant
-		true, // numbers
-		true, //findDuplicates
-		100,  // numberMin
-		500,  // numberMax
-		3,    // minLength
-		2,    // minOccurrences
+		true,  // ignoreTests
+		true,  // matchConstant
+		true,  // numbers
+		true,  // findDuplicates
+		false, // evalConstExpressions
+		100,   // numberMin
+		500,   // numberMax
+		3,     // minLength
+		2,     // minOccurrences
 		map[Type]bool{Assignment: true},
 	)
 
@@ -275,7 +276,8 @@ func test() {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
-				false, // TODO: test
+				false, // findDuplicates
+				false, // evalConstExpressions
 				0,     // numberMin
 				0,     // numberMax
 				tt.minLength,
@@ -322,6 +324,7 @@ func nested() {
 			false,         // matchConstant
 			false,         // numbers
 			false,         // findDuplicates
+			false,         // evalConstExpressions
 			0,             // numberMin
 			0,             // numberMax
 			3,             // minLength
@@ -398,9 +401,10 @@ func TestFunction(t *testing.T) {
 				tt.ignoreTests,
 				tt.matchConstant,
 				tt.numbers,
-				tt.findDuplicates,
-				0, // numberMin
-				0, // numberMax
+				false, // findDuplicates
+				false, // evalConstExpressions
+				0,     // numberMin
+				0,     // numberMax
 				tt.minLength,
 				tt.minOccurrences,
 				map[Type]bool{},
@@ -440,6 +444,7 @@ func ignored() {
 			false,       // matchConstant
 			false,       // numbers
 			false,       // findDuplicates
+			false,       // evalConstExpressions
 			0,           // numberMin
 			0,           // numberMax
 			3,           // minLength
@@ -459,6 +464,109 @@ func ignored() {
 			}
 		}
 	})
+
+	// Test computed string constants
+	computedFile := filepath.Join(tempDir, "computed_values.go")
+	computedContent := `package test
+const Duplicate = "duplicate"
+const DuplicateValue = Duplicate + " value"
+func foo() {
+	a := "duplicate value"
+	b := "duplicate value"
+}`
+	if err := os.WriteFile(computedFile, []byte(computedContent), 0644); err != nil {
+		t.Fatalf("Failed to write computed values file: %v", err)
+	}
+
+	t.Run("test computed values", func(t *testing.T) {
+		p := New(
+			tempDir,
+			"",    // ignore
+			"",    // ignoreStrings
+			false, // ignoreTests
+			false, // matchConstant
+			true,  // numbers
+			true,  // findDuplicates
+			true,  // findDuplicates
+			0,     // numberMin
+			0,     // numberMax
+			3,     // minLength
+			2,     // minOccurrences
+			map[Type]bool{},
+		)
+
+		_, csts, err := p.ParseTree()
+		if err != nil {
+			t.Fatalf("ParseTree() error = %v", err)
+		}
+
+		// Should find a constant with value "duplicate value"
+		found := false
+		for val, cst := range csts {
+			if val == "duplicate value" {
+				if len(cst) != 1 {
+					t.Errorf("ParseTree() found %d constants with value 'duplicated value', expected 1", len(cst))
+					continue
+				}
+				if cst[0].Name != "DuplicateValue" {
+					t.Errorf("ParseTree() found const named %s to have value 'duplicate value', expected const named DuplicateValue", cst[0].Name)
+				} else {
+					found = true
+				}
+			}
+		}
+		if !found {
+			t.Errorf("ParseTree() did not find computed const DuplicateValue")
+		}
+	})
+
+	// Test computed string constants
+	computedNumsFile := filepath.Join(tempDir, "computed_numbers.go")
+	computedNumsContent := `package test
+const KiB = (1 << 10) + 0
+const Kibibytes = 1024
+
+func foo() {
+  num := 1024
+}
+`
+	if err := os.WriteFile(computedNumsFile, []byte(computedNumsContent), 0644); err != nil {
+		t.Fatalf("Failed to write computed numbers file: %v", err)
+	}
+
+	t.Run("test computed numeric values", func(t *testing.T) {
+		p := New(
+			tempDir,
+			"",    // ignore
+			"",    // ignoreStrings
+			false, // ignoreTests
+			true,  // matchConstant
+			true,  // numbers
+			true,  // findDuplicates
+			true,  // findDuplicates
+			0,     // numberMin
+			0,     // numberMax
+			0,     // minLength
+			1,     // minOccurrences
+			map[Type]bool{},
+		)
+
+		_, csts, err := p.ParseTree()
+		if err != nil {
+			t.Fatalf("ParseTree() error = %v", err)
+		}
+
+		// Should find a constant with value "duplicate value"
+		for val, cst := range csts {
+			if val == "1024" {
+				if len(cst) != 2 {
+					t.Errorf("ParseTree() found %d constants with value '1024', expected 2", len(cst))
+					continue
+				}
+			}
+		}
+	})
+
 }
 
 // BenchmarkFileTraversal tests the performance of different traversal strategies
@@ -488,6 +596,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				true,
 				false, // findDuplicates
+				false, // evalConstExpressions
 				0,
 				0,
 				3,
@@ -512,6 +621,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				false,
 				0,
 				0,
@@ -540,6 +650,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 				false,
 				false,
 				true,
+				false,
 				false,
 				0,
 				0,
@@ -571,6 +682,7 @@ func BenchmarkFileTraversal(b *testing.B) {
 					false,
 					true,
 					false,
+					false,
 					0,
 					0,
 					3,
@@ -601,7 +713,7 @@ func createBenchmarkFiles(b *testing.B, dir string, depth, width, filesPerDir in
 	// Create Go files in the current directory
 	for i := 0; i < filesPerDir; i++ {
 		filename := filepath.Join(dir, fmt.Sprintf("file%d.go", i))
-		content := generateGoFile(i, filesPerDir)
+		content := generateGoFile(i)
 		err := os.WriteFile(filename, []byte(content), 0644)
 		if err != nil {
 			b.Fatalf("Failed to write benchmark file: %v", err)
@@ -622,7 +734,7 @@ func createBenchmarkFiles(b *testing.B, dir string, depth, width, filesPerDir in
 }
 
 // generateGoFile creates a Go file with some repeated strings for benchmarking
-func generateGoFile(fileIndex, totalFiles int) string {
+func generateGoFile(fileIndex int) string {
 	// Create strings that will be repeated across files
 	commonStrings := []string{
 		`"this is a common string"`,
@@ -721,7 +833,7 @@ func BenchmarkFileReading(b *testing.B) {
 	// Test optimized file reading with different file sizes
 	for i, size := range testSizes {
 		b.Run(fmt.Sprintf("OptimizedIO_%d", size), func(b *testing.B) {
-			p := New("", "", "", false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
+			p := New("", "", "", false, false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
 
 			b.ResetTimer()
 			for j := 0; j < b.N; j++ {

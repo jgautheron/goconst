@@ -3,6 +3,7 @@ package goconst
 import (
 	"go/ast"
 	"go/token"
+	"go/types"
 	"sort"
 	"strings"
 	"sync"
@@ -64,8 +65,10 @@ type Config struct {
 	NumberMax int
 	// ExcludeTypes allows excluding specific types of contexts
 	ExcludeTypes map[Type]bool
-	// FindDuplicated constants enables finding constants whose values match existing constants in other packages.
+	// FindDuplicates enables finding constants whose values match existing constants in other packages.
 	FindDuplicates bool
+	// EvalConstExpressions enables evaluation of constant expressions like Prefix + "suffix"
+	EvalConstExpressions bool
 }
 
 // NewWithIgnorePatterns creates a new instance of the parser with support for multiple ignore patterns.
@@ -73,7 +76,7 @@ type Config struct {
 func NewWithIgnorePatterns(
 	path, ignore string,
 	ignoreStrings []string,
-	ignoreTests, matchConstant, numbers, findDuplicates bool,
+	ignoreTests, matchConstant, numbers, findDuplicates, evalConstExpressions bool,
 	numberMin, numberMax, minLength, minOccurrences int,
 	excludeTypes map[Type]bool) *Parser {
 
@@ -101,6 +104,7 @@ func NewWithIgnorePatterns(
 		matchConstant,
 		numbers,
 		findDuplicates,
+		evalConstExpressions,
 		numberMin,
 		numberMax,
 		minLength,
@@ -111,7 +115,7 @@ func NewWithIgnorePatterns(
 
 // RunWithConfig is a convenience function that runs the analysis with a Config object
 // directly supporting multiple ignore patterns.
-func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
+func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info, cfg *Config) ([]Issue, error) {
 	p := NewWithIgnorePatterns(
 		"",
 		"",
@@ -120,6 +124,7 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue
 		cfg.MatchWithConstants,
 		cfg.ParseNumbers,
 		cfg.FindDuplicates,
+		cfg.EvalConstExpressions,
 		cfg.NumberMin,
 		cfg.NumberMax,
 		cfg.MinStringLength,
@@ -176,9 +181,9 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue
 			ast.Walk(&treeVisitor{
 				fileSet:     fset,
 				packageName: emptyStr,
-				fileName:    emptyStr,
 				p:           p,
 				ignoreRegex: p.ignoreStringsRegex,
+				typeInfo:    typeInfo,
 			}, f)
 		}(f)
 	}
@@ -277,6 +282,6 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue
 // Run analyzes the provided AST files for duplicated strings or numbers
 // according to the provided configuration.
 // It returns a slice of Issue objects containing the findings.
-func Run(files []*ast.File, fset *token.FileSet, cfg *Config) ([]Issue, error) {
-	return RunWithConfig(files, fset, cfg)
+func Run(files []*ast.File, fset *token.FileSet, typeInfo *types.Info, cfg *Config) ([]Issue, error) {
+	return RunWithConfig(files, fset, typeInfo, cfg)
 }

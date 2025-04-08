@@ -27,6 +27,7 @@ Flags:
   -min-length        only report strings with the minimum given length (default: 3)
   -match-constant    look for existing constants matching the strings
   -find-duplicates   look for constants with identical values
+  -eval-const-expr   enable evaluation of constant expressions (e.g., Prefix + "suffix")
   -numbers           search also for duplicated numbers
   -min               minimum value, only works with -numbers
   -max               maximum value, only works with -numbers
@@ -41,6 +42,7 @@ Examples:
   goconst -min-occurrences 3 -output json $GOPATH/src/github.com/cockroachdb/cockroach
   goconst -numbers -min 60 -max 512 .
   goconst -min-occurrences 5 $(go list -m -f '{{.Dir}}')
+  goconst -eval-const-expr -match-constant . # Matches constant expressions like Prefix + "suffix"
 `
 
 var (
@@ -51,6 +53,7 @@ var (
 	flagMinLength      = flag.Int("min-length", 3, "only report strings with the minimum given length")
 	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
 	flagFindDuplicates = flag.Bool("find-duplicates", false, "look for constants with duplicated values")
+	flagEvalConstExpr  = flag.Bool("eval-const-expr", false, "enable evaluation of constant expressions (e.g., Prefix + \"suffix\")")
 	flagNumbers        = flag.Bool("numbers", false, "search also for duplicated numbers")
 	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
 	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
@@ -108,6 +111,7 @@ func run(path string) (bool, error) {
 		*flagMatchConstant,
 		*flagNumbers,
 		*flagFindDuplicates,
+		*flagEvalConstExpr,
 		*flagMin,
 		*flagMax,
 		*flagMinLength,

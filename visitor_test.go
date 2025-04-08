@@ -128,7 +128,6 @@ func example() {
 				p:           p,
 				fileSet:     fset,
 				packageName: "example",
-				fileName:    "example.go",
 			}
 
 			ast.Walk(v, f)
@@ -229,7 +228,6 @@ func TestTreeVisitor_AddString(t *testing.T) {
 				p:           p,
 				fileSet:     fset,
 				packageName: "example",
-				fileName:    "example.go",
 			}
 
 			v.addString(tt.str, token.Pos(1), tt.typ)

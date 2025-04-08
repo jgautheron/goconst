@@ -9,10 +9,10 @@ import (
 
 func TestMatchConstant(t *testing.T) {
 	tests := []struct {
-		name           string
-		code           string
-		wantIssues    int
-		wantMatches   map[string]string // string -> matching const name
+		name        string
+		code        string
+		wantIssues  int
+		wantMatches map[string]string // string -> matching const name
 	}{
 		{
 			name: "basic constant match",
@@ -143,7 +143,10 @@ func example() {
 				MatchWithConstants: true,
 			}
 
-			issues, err := Run([]*ast.File{f}, fset, config)
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
+
+			issues, err := Run([]*ast.File{f}, fset, info, config)
 			if err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -159,7 +162,7 @@ func example() {
 			for _, issue := range issues {
 				if wantConst, ok := tt.wantMatches[issue.Str]; ok {
 					if issue.MatchingConst != wantConst {
-						t.Errorf("String %q matched with constant %q, want %q", 
+						t.Errorf("String %q matched with constant %q, want %q",
 							issue.Str, issue.MatchingConst, wantConst)
 					}
 				} else {
@@ -202,7 +205,10 @@ func main() {
 		MatchWithConstants: true,
 	}
 
-	issues, err := Run(astFiles, fset, config)
+	chkr, info := checker(fset)
+	_ = chkr.Files(astFiles)
+
+	issues, err := Run(astFiles, fset, info, config)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
@@ -226,4 +232,160 @@ func main() {
 			t.Errorf("Unexpected string found: %q", issue.Str)
 		}
 	}
-} 
+}
+
+func TestMatchConstantExpressions(t *testing.T) {
+	tests := []struct {
+		name        string
+		code        string
+		evalExpr    bool
+		wantIssues  int
+		wantMatches map[string]string // string -> matching const name
+	}{
+		{
+			name: "simple string concatenation",
+			code: `package example
+const (
+	Prefix = "api."
+	Endpoint = Prefix + "users"
+)
+func example() {
+	path := "api.users"
+}`,
+			evalExpr:   true,
+			wantIssues: 1,
+			wantMatches: map[string]string{
+				"api.users": "Endpoint",
+			},
+		},
+		{
+			name: "nested expressions",
+			code: `package example
+const (
+	BaseURL = "example.com"
+	APIPath = "/api/v1"
+	FullURL = BaseURL + APIPath
+)
+func example() {
+	url := "example.com/api/v1"
+}`,
+			evalExpr:   true,
+			wantIssues: 1,
+			wantMatches: map[string]string{
+				"example.com/api/v1": "FullURL",
+			},
+		},
+		{
+			name: "expressions with special characters",
+			code: `package example
+const (
+	ErrorPrefix = "ERROR: "
+	ErrorMsg = ErrorPrefix + "invalid\ninput"
+)
+func example() {
+	msg := "ERROR: invalid\ninput"
+}`,
+			evalExpr:   true,
+			wantIssues: 1,
+			wantMatches: map[string]string{
+				"ERROR: invalid\ninput": "ErrorMsg",
+			},
+		},
+		{
+			name: "multiple levels of indirection",
+			code: `package example
+const (
+	A = "a"
+	B = A + "b"
+	C = B + "c"
+	D = C + "d"
+)
+func example() {
+	val := "abcd"
+}`,
+			evalExpr:   true,
+			wantIssues: 1,
+			wantMatches: map[string]string{
+				"abcd": "D",
+			},
+		},
+		{
+			name: "constant expression - feature disabled",
+			code: `package example
+const (
+	Prefix = "api."
+	Endpoint = Prefix + "users"
+)
+func example() {
+	path := "api.users"
+}`,
+			evalExpr:   false,
+			wantIssues: 1, // Still detects the string, but no matching constant
+			wantMatches: map[string]string{
+				"api.users": "", // Empty string indicates no constant match
+			},
+		},
+		{
+			name: "parenthesized expressions",
+			code: `package example
+const (
+	A = "a"
+	B = "b"
+	Combined = (A + B) + "c"
+)
+func example() {
+	val := "abc"
+}`,
+			evalExpr:   true,
+			wantIssues: 1,
+			wantMatches: map[string]string{
+				"abc": "Combined",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "example.go", tt.code, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse test code: %v", err)
+			}
+
+			config := &Config{
+				MinStringLength:      1, // Set to 1 to catch all strings
+				MinOccurrences:       1, // Set to 1 to catch all occurrences
+				MatchWithConstants:   true,
+				EvalConstExpressions: tt.evalExpr,
+			}
+
+			chkr, info := checker(fset)
+			_ = chkr.Files([]*ast.File{f})
+
+			issues, err := Run([]*ast.File{f}, fset, info, config)
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+
+			if len(issues) != tt.wantIssues {
+				t.Errorf("Got %d issues, want %d", len(issues), tt.wantIssues)
+				for _, issue := range issues {
+					t.Logf("Found issue: %q matches constant %q", issue.Str, issue.MatchingConst)
+				}
+				return
+			}
+
+			// Verify constant matches
+			for _, issue := range issues {
+				if wantConst, ok := tt.wantMatches[issue.Str]; ok {
+					if issue.MatchingConst != wantConst {
+						t.Errorf("String %q matched with constant %q, want %q",
+							issue.Str, issue.MatchingConst, wantConst)
+					}
+				} else {
+					t.Errorf("Unexpected string found: %q", issue.Str)
+				}
+			}
+		})
+	}
+}

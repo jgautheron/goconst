@@ -8,8 +8,10 @@ package goconst
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/parser"
 	"go/token"
+	"go/types"
 	"io"
 	"log"
 	"os"
@@ -138,8 +140,10 @@ type Parser struct {
 	numberMin, numberMax        int
 	excludeTypes                map[Type]bool
 	maxConcurrency              int
+	evalConstExpressions        bool // Whether to evaluate constant expressions
 
 	supportedTokens []token.Token
+	supportedKinds  []constant.Kind
 
 	// Internals
 	strs        Strings
@@ -177,14 +181,17 @@ type Parser struct {
 //   - matchConstant: whether to match strings with existing constants
 //   - numbers: whether to analyze number literals
 //   - findDuplicates: whether to find consts with duplicate values
+//   - evalConstExpressions: whether to evaluate constant expressions
 //   - numberMin/numberMax: range limits for number analysis
 //   - minLength: minimum string length to consider
 //   - minOccurrences: minimum occurrences to report
 //   - excludeTypes: map of context types to exclude
-func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
+func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers, findDuplicates, evalConstExpressions bool, numberMin, numberMax, minLength, minOccurrences int, excludeTypes map[Type]bool) *Parser {
 	supportedTokens := []token.Token{token.STRING}
+	supportedKinds := []constant.Kind{constant.String}
 	if numbers {
 		supportedTokens = append(supportedTokens, token.INT, token.FLOAT)
+		supportedKinds = append(supportedKinds, constant.Complex, constant.Float, constant.Int)
 	}
 
 	// Set default concurrency to number of CPUs
@@ -204,7 +211,7 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 	if ignoreStrings != "" {
 		ignoreStringsRegex, err = regexp.Compile(ignoreStrings)
 		if err != nil {
-			log.Printf("Warning: Invalid ignoreStrings regex pattern '%s': %v", ignoreStrings, err)
+			log.Printf("Warning: Invalid ignore-strings regex pattern '%s': %v", ignoreStrings, err)
 		}
 	}
 
@@ -226,21 +233,23 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 	fileSet := token.NewFileSet()
 
 	return &Parser{
-		path:               path,
-		ignore:             ignore,
-		ignoreStrings:      ignoreStrings,
-		ignoreTests:        ignoreTests,
-		findDuplicates:     findDuplicates,
-		matchConstant:      matchConstant,
-		minLength:          minLength,
-		minOccurrences:     minOccurrences,
-		numberMin:          numberMin,
-		numberMax:          numberMax,
-		supportedTokens:    supportedTokens,
-		excludeTypes:       excludeTypes,
-		maxConcurrency:     maxConcurrency,
-		ignoreRegex:        ignoreRegex,
-		ignoreStringsRegex: ignoreStringsRegex,
+		path:                 path,
+		ignore:               ignore,
+		ignoreStrings:        ignoreStrings,
+		ignoreTests:          ignoreTests,
+		matchConstant:        matchConstant,
+		findDuplicates:       findDuplicates,
+		evalConstExpressions: evalConstExpressions,
+		minLength:            minLength,
+		minOccurrences:       minOccurrences,
+		numberMin:            numberMin,
+		numberMax:            numberMax,
+		supportedTokens:      supportedTokens,
+		supportedKinds:       supportedKinds,
+		excludeTypes:         excludeTypes,
+		maxConcurrency:       maxConcurrency,
+		ignoreRegex:          ignoreRegex,
+		ignoreStringsRegex:   ignoreStringsRegex,
 
 		// Initialize the maps with capacity hints
 		strs:        make(Strings, stringMapCapacity),
@@ -248,8 +257,8 @@ func New(path, ignore, ignoreStrings string, ignoreTests, matchConstant, numbers
 		stringCount: make(map[string]int, stringMapCapacity),
 
 		// Default batch processing settings
-		batchSize:      1000,
-		enableBatching: false,
+		batchSize:      50,
+		enableBatching: true,
 
 		// Cache a single FileSet for reuse
 		fileSetCache: fileSet,
@@ -289,9 +298,14 @@ func (p *Parser) ParseTree() (Strings, Constants, error) {
 	}
 }
 
+const (
+	chanSize = 1000
+)
+
 // parseTreeConcurrent implements an optimized concurrent file traversal
 // that efficiently processes directories and files using worker pools.
 func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, Constants, error) {
+
 	// If batch processing is enabled, use that implementation instead
 	if p.enableBatching {
 		return p.parseTreeBatched(rootPath, recursive)
@@ -310,14 +324,24 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 		if err != nil {
 			return nil, nil, err
 		}
+		// run type checker
+		info := &types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+		}
+
+		chkConfig := &types.Config{
+			Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
+		}
+		pkg := types.NewPackage("", f.Name.Name)
+		_ = types.NewChecker(chkConfig, fset, pkg, info).Files([]*ast.File{f})
 
 		// Process the file
 		ast.Walk(&treeVisitor{
 			fileSet:     fset,
 			packageName: f.Name.Name,
-			fileName:    rootPath,
 			p:           p,
 			ignoreRegex: p.ignoreStringsRegex,
+			typeInfo:    info,
 		}, f)
 
 		// Post-process and filter results
@@ -326,7 +350,7 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 	}
 
 	// Create a channel to collect all files to be processed
-	filesChan := make(chan string, 1000)
+	filesChan := make(chan string, chanSize)
 
 	// Start a goroutine to collect all Go files
 	var wg sync.WaitGroup
@@ -406,16 +430,52 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 		}
 	}()
 
+	// Read and parse files concurrently
+	fset, filesByPackage := p.parseConcurrently(filesChan)
+
+	wg.Wait()
+
+	// Type checking must be performed serially to avoid data races.
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+	}
+
+	chkConfig := &types.Config{
+		Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
+	}
+
+	for pkgName, files := range filesByPackage {
+		chk := types.NewChecker(chkConfig, fset, types.NewPackage("", pkgName), info)
+		_ = chk.Files(files)
+	}
+
+	// Visit all files
+	p.visitConcurrently(fset, info, filesByPackage)
+
+	// Post-process and filter results
+	p.ProcessResults()
+
+	return p.strs, p.consts, nil
+}
+
+func (p *Parser) parseConcurrently(filesChan <-chan string) (*token.FileSet, map[string][]*ast.File) {
 	// Start file parser workers
 	var parserWg sync.WaitGroup
 
-	// Reuse FileSet in each worker
 	fset := p.getFileSet()
+
+	parsedFilesChan := make(chan parsedFile, chanSize)
 
 	for i := 0; i < p.maxConcurrency; i++ {
 		parserWg.Add(1)
-		go func() {
-			defer parserWg.Done()
+		go func(id int) {
+			defer func() {
+				parserWg.Done()
+				if id == 0 { // first worker waits and closes the sending channel
+					parserWg.Wait()
+					close(parsedFilesChan)
+				}
+			}()
 
 			for filePath := range filesChan {
 				// Parse a single file
@@ -433,26 +493,63 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 
 				// Process the file
 				pkgName := f.Name.Name
+				parsedFilesChan <- parsedFile{pkgName, f}
+			}
+		}(i)
+	}
+
+	// Read all parsed files into packgageFiles map. All packages must be parsed prior to type-checking.
+	fileCount := 0
+	packageFiles := map[string][]*ast.File{}
+
+	var readerWg sync.WaitGroup
+	readerWg.Add(1)
+	go func() {
+		defer readerWg.Done()
+		for parsed := range parsedFilesChan {
+			packageFiles[parsed.pkgName] = append(packageFiles[parsed.pkgName], parsed.f)
+			fileCount++ // safe since this is single-threaded.
+		}
+	}()
+
+	// Wait for all file parsing to complete
+	parserWg.Wait()
+	// Wait for collection to complete
+	readerWg.Wait()
+
+	return fset, packageFiles
+}
+
+// visitConcurrently visits all files in filesByPackage on a worker pool goroutines.
+func (p *Parser) visitConcurrently(fset *token.FileSet, info *types.Info, filesByPackage map[string][]*ast.File) {
+	var visitorWg sync.WaitGroup
+
+	parsedFilesChan := make(chan parsedFile, chanSize)
+
+	for i := 0; i < p.maxConcurrency; i++ {
+		visitorWg.Add(1)
+		go func() {
+			defer visitorWg.Done()
+			for pf := range parsedFilesChan {
 				ast.Walk(&treeVisitor{
 					fileSet:     fset,
-					packageName: pkgName,
-					fileName:    filePath,
+					typeInfo:    info,
+					packageName: pf.pkgName,
 					p:           p,
 					ignoreRegex: p.ignoreStringsRegex,
-				}, f)
+				}, pf.f)
 			}
 		}()
 	}
 
-	// Wait for all file collection to complete
-	wg.Wait()
-	// Wait for all file processing to complete
-	parserWg.Wait()
+	for pkgName, files := range filesByPackage {
+		for _, f := range files {
+			parsedFilesChan <- parsedFile{pkgName, f}
+		}
+	}
+	close(parsedFilesChan)
 
-	// Post-process and filter results
-	p.ProcessResults()
-
-	return p.strs, p.consts, nil
+	visitorWg.Wait()
 }
 
 // parseTreeBatched implements batch processing for very large codebases.
@@ -460,7 +557,10 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 // in batches and processes each batch completely before moving to the next.
 // This helps manage memory usage for extremely large codebases.
 func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Constants, error) {
-	var allFiles []string
+	var (
+		allFiles      []string
+		allFilesByDir = make(map[string][]string)
+	)
 
 	// First, collect all file paths that need to be processed
 	if recursive {
@@ -484,6 +584,8 @@ func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Con
 				}
 
 				allFiles = append(allFiles, path)
+				dir := filepath.Dir(path)
+				allFilesByDir[dir] = append(allFilesByDir[dir], path)
 			}
 
 			return nil
@@ -519,69 +621,76 @@ func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Con
 				}
 
 				allFiles = append(allFiles, path)
+				allFilesByDir[rootPath] = append(allFilesByDir[rootPath], path)
 			}
 		}
 	}
 
-	// Process files in batches
-	totalFiles := len(allFiles)
-	log.Printf("Found %d Go files to process in batches of %d", totalFiles, p.batchSize)
+	// Split into batches, ensuring each package's files are all in the same batch, since the typechecker requires
+	// entire packages. Some batches may exceed the requested batchSize.
+	totalFiles := 0
+	largeBatches := 0
+	maxBatchSize := 0
 
-	for i := 0; i < totalFiles; i += p.batchSize {
-		end := i + p.batchSize
-		if end > totalFiles {
-			end = totalFiles
+	var batches [][]string
+	var currBatch []string
+	for _, pkgFiles := range allFilesByDir {
+		size := len(currBatch)
+		if size >= p.batchSize {
+			batches = append(batches, currBatch)
+			currBatch = nil
 		}
+		currBatch = append(currBatch, pkgFiles...)
 
-		batch := allFiles[i:end]
-		log.Printf("Processing batch %d/%d (%d files)", (i/p.batchSize)+1, (totalFiles+p.batchSize-1)/p.batchSize, len(batch))
+		// compute some stats
+		if size >= p.batchSize {
+			largeBatches++
+		}
+		if size >= maxBatchSize {
+			maxBatchSize = size
+		}
+		totalFiles += len(pkgFiles)
+	}
+	if len(currBatch) > 0 {
+		batches = append(batches, currBatch)
+	}
+
+	// Process batches
+	log.Printf("Found %d Go files to process in batches of %d", totalFiles, p.batchSize)
+	if largeBatches > 0 {
+		log.Printf("Warning: %d batches exceed the configured batch size. Largest batch contains %d files", largeBatches, maxBatchSize)
+	}
+
+	for i, batch := range batches {
+		log.Printf("Processing batch %d/%d (%d files)", i+1, len(batches), len(batch))
 
 		// Process this batch concurrently
-		var wg sync.WaitGroup
-		fileChan := make(chan string, len(batch))
-
-		// Start file processor workers
-		for j := 0; j < p.maxConcurrency; j++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				fset := token.NewFileSet()
-
-				for filePath := range fileChan {
-					// Process each file
-					src, err := p.readFileEfficiently(filePath)
-					if err != nil {
-						log.Printf("Error reading file %s: %v", filePath, err)
-						continue
-					}
-
-					f, err := parser.ParseFile(fset, filePath, src, 0)
-					if err != nil {
-						log.Printf("Error parsing file %s: %v", filePath, err)
-						continue
-					}
-
-					// Process the file
-					pkgName := f.Name.Name
-					ast.Walk(&treeVisitor{
-						fileSet:     fset,
-						packageName: pkgName,
-						fileName:    filePath,
-						p:           p,
-						ignoreRegex: p.ignoreStringsRegex,
-					}, f)
-				}
-			}()
-		}
 
 		// Queue all files in this batch
+		fileChan := make(chan string, len(batch))
 		for _, filePath := range batch {
 			fileChan <- filePath
 		}
+		close(fileChan) // safe to close since len(fileChan) == len(batch)
 
-		// Close the channel and wait for processing to complete
-		close(fileChan)
-		wg.Wait()
+		// Parse files concurrently
+		fset, filesByPackage := p.parseConcurrently(fileChan)
+
+		// Type check -- must be processed serially to avoid data races
+		info := &types.Info{
+			Types: make(map[ast.Expr]types.TypeAndValue),
+		}
+
+		chkConfig := &types.Config{
+			Error: func(err error) {}, // type checking is only used to evaluate constant expressions, so we ignore most errors
+		}
+		for pkgName, files := range filesByPackage {
+			chk := types.NewChecker(chkConfig, fset, types.NewPackage("", pkgName), info)
+			_ = chk.Files(files)
+		}
+
+		// Visit all files concurrently
+		p.visitConcurrently(fset, info, filesByPackage)
 
 		// Optional: Run garbage collection between batches for very large codebases
 		if totalFiles > 10000 && len(batch) >= 1000 {
@@ -740,6 +849,11 @@ func (p *Parser) ProcessResults() {
 			}
 		}
 	}
+}
+
+type parsedFile struct {
+	pkgName string
+	f       *ast.File
 }
 
 // Strings maps string literals to their positions in the code.

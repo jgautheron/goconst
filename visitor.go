@@ -2,7 +2,9 @@ package goconst
 
 import (
 	"go/ast"
+	"go/constant"
 	"go/token"
+	"go/types"
 	"regexp"
 	"strconv"
 	"strings"
@@ -11,9 +13,9 @@ import (
 // treeVisitor is used to walk the AST and find strings that could be constants.
 type treeVisitor struct {
 	fileSet     *token.FileSet
+	typeInfo    *types.Info
 	packageName string
-	fileName    string
-	p          *Parser
+	p           *Parser
 	ignoreRegex *regexp.Regexp
 }
 
@@ -41,12 +43,20 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 		for _, spec := range t.Specs {
 			val := spec.(*ast.ValueSpec)
 			for i, str := range val.Values {
-				lit, ok := str.(*ast.BasicLit)
-				if !ok || !v.isSupported(lit.Kind) {
-					continue
-				}
+				if v.typeInfo != nil && v.p.evalConstExpressions {
+					typedVal, ok := v.typeInfo.Types[str]
+					if !ok || !v.isSupportedKind(typedVal.Value.Kind()) {
+						continue
+					}
 
-				v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
+					v.addConst(val.Names[i].Name, typedVal.Value.String(), str.Pos())
+				} else {
+					lit, ok := str.(*ast.BasicLit)
+					if !ok || !v.isSupported(lit.Kind) {
+						continue
+					}
+					v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
+				}
 			}
 		}
 
@@ -244,6 +254,15 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 func (v *treeVisitor) isSupported(tk token.Token) bool {
 	for _, s := range v.p.supportedTokens {
 		if tk == s {
+			return true
+		}
+	}
+	return false
+}
+
+func (v *treeVisitor) isSupportedKind(kind constant.Kind) bool {
+	for _, s := range v.p.supportedKinds {
+		if kind == s {
 			return true
 		}
 	}
