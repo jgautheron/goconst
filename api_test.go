@@ -63,7 +63,8 @@ func example() {
 	const ConstB = ConstA + "st"
 }`,
 			config: &Config{
-				FindDuplicates: true,
+				FindDuplicates:       true,
+				EvalConstExpressions: true,
 			},
 			expectedIssues: 1,
 		},
