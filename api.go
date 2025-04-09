@@ -41,7 +41,7 @@ func PutIssueBuffer(issues []Issue) {
 		issues[i].Str = ""
 	}
 	// Return the slice to the pool
-	IssuePool.Put(make([]Issue, 0, cap(issues)))
+	IssuePool.Put(make([]Issue, 0, cap(issues))) //nolint:staticcheck
 }
 
 // Config contains all configuration options for the goconst analyzer.
