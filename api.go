@@ -41,8 +41,7 @@ func PutIssueBuffer(issues []Issue) {
 		issues[i].Str = ""
 	}
 	// Return the slice to the pool
-	issuesCopy := make([]Issue, 0, cap(issues))
-	IssuePool.Put(&issuesCopy)
+	IssuePool.Put(make([]Issue, 0, cap(issues)))
 }
 
 // Config contains all configuration options for the goconst analyzer.
