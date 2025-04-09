@@ -21,29 +21,6 @@ type Issue struct {
 	DuplicatePos     token.Position
 }
 
-// IssuePool provides a pool of Issue slices to reduce allocations
-var IssuePool = sync.Pool{
-	New: func() interface{} {
-		return make([]Issue, 0, 100)
-	},
-}
-
-// GetIssueBuffer retrieves an Issue slice from the pool
-func GetIssueBuffer() []Issue {
-	return IssuePool.Get().([]Issue)[:0] // Reset length but keep capacity
-}
-
-// PutIssueBuffer returns an Issue slice to the pool
-func PutIssueBuffer(issues []Issue) {
-	// Make sure to clear references before returning to pool
-	for i := range issues {
-		issues[i].MatchingConst = ""
-		issues[i].Str = ""
-	}
-	// Return the slice to the pool
-	IssuePool.Put(make([]Issue, 0, cap(issues))) //nolint:staticcheck
-}
-
 // Config contains all configuration options for the goconst analyzer.
 type Config struct {
 	// IgnoreStrings is a list of regular expressions to filter strings
@@ -137,13 +114,8 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 		expectedIssues = 1000 // Cap at reasonable maximum
 	}
 
-	// Get issue buffer from pool instead of allocating
-	issueBuffer := GetIssueBuffer()
-	if cap(issueBuffer) < expectedIssues {
-		// Only allocate new buffer if existing one is too small
-		PutIssueBuffer(issueBuffer)
-		issueBuffer = make([]Issue, 0, expectedIssues)
-	}
+	// Allocate a new buffer
+	issueBuffer := make([]Issue, 0, expectedIssues)
 
 	// Process files concurrently
 	var wg sync.WaitGroup
@@ -195,8 +167,8 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	p.stringMutex.RLock()
 	p.stringCountMutex.RLock()
 
-	// Get a string buffer from pool instead of allocating
-	stringKeys := GetStringBuffer()
+	// Create a slice to hold the string keys
+	stringKeys := make([]string, 0, len(p.strs))
 
 	// Create an array of strings to sort for stable output
 	for str := range p.strs {
@@ -243,8 +215,8 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	// process duplicate constants
 	p.constMutex.RLock()
 
-	// reuse string buffer for const keys
-	stringKeys = stringKeys[:0]
+	// Create a new slice for const keys
+	stringKeys = make([]string, 0, len(p.consts))
 
 	// Create an array of strings and sort for stable output
 	for str := range p.consts {
@@ -270,9 +242,6 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	}
 
 	p.constMutex.RUnlock()
-
-	// Return string buffer to pool
-	PutStringBuffer(stringKeys)
 
 	// Don't return the buffer to pool as the caller now owns it
 	return issueBuffer, nil
