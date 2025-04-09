@@ -46,14 +46,6 @@ var ByteBufferPool = sync.Pool{
 	},
 }
 
-// StringBufferPool is a pool for string slices
-var StringBufferPool = sync.Pool{
-	New: func() interface{} {
-		slice := make([]string, 0, 32)
-		return &slice
-	},
-}
-
 // ExtendedPosPool is a pool for slices of ExtendedPos
 var ExtendedPosPool = sync.Pool{
 	New: func() interface{} {
@@ -101,17 +93,6 @@ func GetByteBuffer() []byte {
 func PutByteBuffer(buf []byte) {
 	bufCopy := make([]byte, 0, cap(buf))
 	ByteBufferPool.Put(&bufCopy)
-}
-
-// GetStringBuffer retrieves a string slice from the pool
-func GetStringBuffer() []string {
-	return (*StringBufferPool.Get().(*[]string))[:0] // Reset length but keep capacity
-}
-
-// PutStringBuffer returns a string slice to the pool
-func PutStringBuffer(slice []string) {
-	sliceCopy := make([]string, 0, cap(slice))
-	StringBufferPool.Put(&sliceCopy)
 }
 
 // GetExtendedPosBuffer retrieves an ExtendedPos slice from the pool
@@ -466,16 +447,19 @@ func (p *Parser) parseConcurrently(filesChan <-chan string) (*token.FileSet, map
 
 	parsedFilesChan := make(chan parsedFile, chanSize)
 
+	// Add all workers to the WaitGroup before starting any goroutines
+	// This prevents a race condition with the goroutine that waits
+	parserWg.Add(p.maxConcurrency)
+
+	// Start a separate goroutine to close the channel after all parsers are done
+	go func() {
+		parserWg.Wait()
+		close(parsedFilesChan)
+	}()
+
 	for i := 0; i < p.maxConcurrency; i++ {
-		parserWg.Add(1)
-		go func(id int) {
-			defer func() {
-				parserWg.Done()
-				if id == 0 { // first worker waits and closes the sending channel
-					parserWg.Wait()
-					close(parsedFilesChan)
-				}
-			}()
+		go func() {
+			defer parserWg.Done()
 
 			for filePath := range filesChan {
 				// Parse a single file
@@ -495,7 +479,7 @@ func (p *Parser) parseConcurrently(filesChan <-chan string) (*token.FileSet, map
 				pkgName := f.Name.Name
 				parsedFilesChan <- parsedFile{pkgName, f}
 			}
-		}(i)
+		}()
 	}
 
 	// Read all parsed files into packgageFiles map. All packages must be parsed prior to type-checking.
@@ -526,8 +510,10 @@ func (p *Parser) visitConcurrently(fset *token.FileSet, info *types.Info, filesB
 
 	parsedFilesChan := make(chan parsedFile, chanSize)
 
+	// Add all workers to the WaitGroup before starting any goroutines
+	visitorWg.Add(p.maxConcurrency)
+
 	for i := 0; i < p.maxConcurrency; i++ {
-		visitorWg.Add(1)
 		go func() {
 			defer visitorWg.Done()
 			for pf := range parsedFilesChan {

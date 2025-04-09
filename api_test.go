@@ -562,8 +562,3 @@ func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
 	}
 	return types.NewChecker(cfg, fset, types.NewPackage("", "example"), info), info
 }
-
-func Test_IssuePool(t *testing.T) {
-	PutIssueBuffer([]Issue{})
-	GetIssueBuffer()
-}
