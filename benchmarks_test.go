@@ -24,18 +24,18 @@ func BenchmarkParseSampleFile(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := &Parser{
-			minLength:        3,
-			minOccurrences:   2,
-			supportedTokens:  []token.Token{token.STRING},
-			excludeTypes:     map[Type]bool{},
-			strs:             Strings{},
-			consts:           Constants{},
-			matchConstant:    true,
+			minLength:            3,
+			minOccurrences:       2,
+			supportedTokens:      []token.Token{token.STRING},
+			excludeTypes:         map[Type]bool{},
+			strs:                 Strings{},
+			consts:               Constants{},
+			matchConstant:        true,
 			evalConstExpressions: false, // Disable for benchmark
-			stringCount:      make(map[string]int),
-			stringMutex:      sync.RWMutex{},
-			stringCountMutex: sync.RWMutex{},
-			constMutex:       sync.RWMutex{},
+			stringCount:          make(map[string]int),
+			stringMutex:          sync.RWMutex{},
+			stringCountMutex:     sync.RWMutex{},
+			constMutex:           sync.RWMutex{},
 		}
 
 		v := &treeVisitor{
@@ -57,9 +57,9 @@ func BenchmarkRun(b *testing.B) {
 	}
 
 	config := &Config{
-		MinStringLength:    3,
-		MinOccurrences:     2,
-		MatchWithConstants: true,
+		MinStringLength:      3,
+		MinOccurrences:       2,
+		MatchWithConstants:   true,
 		EvalConstExpressions: false, // Disable for benchmark
 	}
 
@@ -521,14 +521,14 @@ func BenchmarkParseTreeWithConstMatch(b *testing.B) {
 // BenchmarkStringInterning benchmarks the performance improvement from string interning
 func BenchmarkStringInterning(b *testing.B) {
 	b.ReportAllocs()
-	
+
 	// Generate some test data
 	testData := make([]string, 100)
 	for i := 0; i < 100; i++ {
 		// Create strings that will sometimes be duplicates
 		testData[i] = fmt.Sprintf("test-string-%d", i%20)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		p := New(
@@ -546,12 +546,12 @@ func BenchmarkStringInterning(b *testing.B) {
 			2,
 			nil,
 		)
-		
+
 		// Simulate processing these strings
 		for _, s := range testData {
 			// Intern the string
 			interned := InternString(s)
-			
+
 			// Do something with the interned string to prevent optimization
 			if len(interned) > 0 {
 				p.stringCount[interned]++
@@ -566,20 +566,20 @@ func BenchmarkParseTreeLargeCodebase(b *testing.B) {
 	if os.Getenv("CI") != "true" && os.Getenv("BENCH_LARGE") != "1" {
 		b.Skip("Skipping large benchmark; run with BENCH_LARGE=1 to enable")
 	}
-	
+
 	// Use the parent directory of the current workspace as test data
 	// This gives us a real-world codebase to analyze
 	wd, err := os.Getwd()
 	if err != nil {
 		b.Fatalf("Failed to get working directory: %v", err)
 	}
-	
+
 	// Go up one level to get parent directory
 	testPath := filepath.Dir(wd)
-	
+
 	b.ReportAllocs()
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		p := New(
 			testPath,
@@ -606,15 +606,15 @@ func BenchmarkParseTreeLargeCodebase(b *testing.B) {
 // BenchmarkStringPooling benchmarks the performance impact of string pooling
 func BenchmarkStringPooling(b *testing.B) {
 	b.ReportAllocs()
-	
+
 	// Create a set of strings to process with some duplication
 	testStrings := make([]string, 10000)
 	for i := 0; i < len(testStrings); i++ {
 		testStrings[i] = fmt.Sprintf("test-string-%d", i%500)
 	}
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		p := New(
 			"",
@@ -631,13 +631,13 @@ func BenchmarkStringPooling(b *testing.B) {
 			2,
 			nil, // No type exclusions
 		)
-		
+
 		// Simulate processing all strings
 		for _, s := range testStrings {
 			// Use intern to ensure string deduplication
 			internedString := InternString(s)
 			p.stringCount[internedString]++
-			
+
 			// Simulate position tracking (simplified)
 			if _, ok := p.strs[internedString]; !ok {
 				p.strs[internedString] = make([]ExtendedPos, 0, 4)
@@ -650,14 +650,14 @@ func BenchmarkStringPooling(b *testing.B) {
 func BenchmarkParallelProcessing(b *testing.B) {
 	// Use the testdata directory which should have multiple files
 	testPath := filepath.Join(".", "testdata")
-	
+
 	// Ensure the test directory exists
 	if _, err := os.Stat(testPath); os.IsNotExist(err) {
 		b.Skipf("Test data directory %q does not exist", testPath)
 	}
-	
+
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		p := New(
