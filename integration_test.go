@@ -30,7 +30,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
+			expectedStrings: 10, // All strings that appear at least twice (7 original + 2 from const_expressions.go + 1 from composite literals)
 		},
 		{
 			name:            "match with constants",
@@ -42,7 +42,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			evalConstExpr:   true, // Enable constant expression evaluation for this test
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
+			expectedStrings: 10, // All strings that appear at least twice (7 original + 2 from const_expressions.go + 1 from composite literals)
 			expectedMatches: map[string]string{
 				"single constant":             "SingleConst",
 				"grouped constant":            "GroupedConst1",
@@ -62,7 +62,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 10, // All strings + "12345" (8 original + 2 from const_expressions.go)
+			expectedStrings: 11, // All strings + "12345" (8 original + 2 from const_expressions.go + 1 from composite literals)
 		},
 		{
 			name:            "filter by number range",
@@ -76,7 +76,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  2,
-			expectedStrings: 9, // All strings, 12345 should be filtered out (7 original + 2 from const_expressions.go)
+			expectedStrings: 10, // All strings, 12345 should be filtered out (7 original + 2 from const_expressions.go + 1 from composite literals)
 		},
 		{
 			name:            "higher minimum occurrences",
@@ -88,7 +88,7 @@ func TestIntegrationWithTestdata(t *testing.T) {
 			evalConstExpr:   false,
 			minLength:       3,
 			minOccurrences:  5, // higher than any string in our testdata
-			expectedStrings: 1, // "test context" appears exactly 5 times
+			expectedStrings: 2, // "test context" appears 5 times, "composite value" appears 5 times
 		},
 	}
 
@@ -153,21 +153,22 @@ func TestIntegrationExcludeTypes(t *testing.T) {
 		{
 			name:            "no exclusions",
 			excludeTypes:    map[Type]bool{},
-			expectedStrings: 9, // All strings that appear at least twice (7 original + 2 from const_expressions.go)
+			expectedStrings: 10, // All strings that appear at least twice (7 original + 2 from const_expressions.go + 1 from composite literals)
 		},
 		{
 			name:            "exclude assignments",
 			excludeTypes:    map[Type]bool{Assignment: true},
-			expectedStrings: 3, // After excluding assignments
+			expectedStrings: 4, // After excluding assignments (composite literals still counted)
 		},
 		{
 			name: "exclude all types",
 			excludeTypes: map[Type]bool{
-				Assignment: true,
-				Binary:     true,
-				Case:       true,
-				Return:     true,
-				Call:       true,
+				Assignment:   true,
+				Binary:       true,
+				Case:         true,
+				Return:       true,
+				Call:          true,
+				CompositeLit: true,
 			},
 			expectedStrings: 0,
 		},
