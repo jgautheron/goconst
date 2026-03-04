@@ -85,6 +85,18 @@ func example() {
 			excludeTypes:        map[Type]bool{},
 		},
 		{
+			name: "composite literal with non-literal elements",
+			code: `package example
+func example() {
+	_ = [][]string{{"nested"}}
+	_ = []string{getString()}
+}
+func getString() string { return "" }`,
+			expectedStrings:     []string{"nested"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+		},
+		{
 			name: "excluded composite literal",
 			code: `package example
 func example() {
