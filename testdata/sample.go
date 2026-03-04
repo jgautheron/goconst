@@ -72,3 +72,13 @@ func testDuplicateConsts() {
 	// This const should be detected as a duplicate const of MatchingConst
 	const duplicate = "should be constant"
 }
+
+func testCompositeLiterals() {
+	type entry struct {
+		label string
+	}
+
+	_ = []string{"composite value", "composite value"}
+	_ = map[string]string{"composite value": "composite value"}
+	_ = entry{label: "composite value"}
+}

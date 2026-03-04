@@ -116,9 +116,35 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 				v.addString(lit.Value, lit.Pos(), Call)
 			}
 		}
+
+	// []string{"foo"}, map[string]string{"k": "v"}, struct{A string}{A: "foo"}
+	case *ast.CompositeLit:
+		for _, item := range t.Elts {
+			v.addCompositeLiteralElement(item)
+		}
 	}
 
 	return v
+}
+
+func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr) {
+	if lit, ok := node.(*ast.BasicLit); ok && v.isSupported(lit.Kind) {
+		v.addString(lit.Value, lit.Pos(), CompositeLit)
+		return
+	}
+
+	kv, ok := node.(*ast.KeyValueExpr)
+	if !ok {
+		return
+	}
+
+	if keyLit, ok := kv.Key.(*ast.BasicLit); ok && v.isSupported(keyLit.Kind) {
+		v.addString(keyLit.Value, keyLit.Pos(), CompositeLit)
+	}
+
+	if valueLit, ok := kv.Value.(*ast.BasicLit); ok && v.isSupported(valueLit.Kind) {
+		v.addString(valueLit.Value, valueLit.Pos(), CompositeLit)
+	}
 }
 
 // addString adds a string in the map along with its position in the tree.
