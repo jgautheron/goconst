@@ -755,20 +755,20 @@ func generateGoFile(fileIndex int) string {
 	b.WriteString("package benchmark\n\n")
 
 	// Add a constant definition
-	b.WriteString(fmt.Sprintf("const FileConst%d = %s\n\n", fileIndex, commonStrings[fileIndex%len(commonStrings)]))
+	fmt.Fprintf(&b, "const FileConst%d = %s\n\n", fileIndex, commonStrings[fileIndex%len(commonStrings)])
 
 	// Create a function with repeated strings
-	b.WriteString(fmt.Sprintf("func Function%d() {\n", fileIndex))
+	fmt.Fprintf(&b, "func Function%d() {\n", fileIndex)
 
 	// Add some variable assignments with repeated strings
 	for i := 0; i < 5; i++ {
 		stringIndex := (fileIndex + i) % len(commonStrings)
-		b.WriteString(fmt.Sprintf("\tvar%d := %s\n", i, commonStrings[stringIndex]))
+		fmt.Fprintf(&b, "\tvar%d := %s\n", i, commonStrings[stringIndex])
 	}
 
 	// Add some file-specific strings
 	for i := 0; i < len(fileSpecificStrings); i++ {
-		b.WriteString(fmt.Sprintf("\tspecific%d := %s\n", i, fileSpecificStrings[i]))
+		fmt.Fprintf(&b, "\tspecific%d := %s\n", i, fileSpecificStrings[i])
 	}
 
 	// Add some conditions with repeated strings
@@ -780,8 +780,8 @@ func generateGoFile(fileIndex int) string {
 	b.WriteString("\tswitch y {\n")
 	for i := 0; i < 3; i++ {
 		stringIndex := (fileIndex + i) % len(commonStrings)
-		b.WriteString(fmt.Sprintf("\tcase %s:\n", commonStrings[stringIndex]))
-		b.WriteString(fmt.Sprintf("\t\tfmt.Println(%s)\n", fileSpecificStrings[i%len(fileSpecificStrings)]))
+		fmt.Fprintf(&b, "\tcase %s:\n", commonStrings[stringIndex])
+		fmt.Fprintf(&b, "\t\tfmt.Println(%s)\n", fileSpecificStrings[i%len(fileSpecificStrings)])
 	}
 	b.WriteString("\t}\n")
 
@@ -860,19 +860,19 @@ func generateLargeGoFile(lineCount int) string {
 	// Add constants
 	b.WriteString("const (\n")
 	for i := 0; i < 10; i++ {
-		b.WriteString(fmt.Sprintf("\tConst%d = \"constant value %d\"\n", i, i))
+		fmt.Fprintf(&b, "\tConst%d = \"constant value %d\"\n", i, i)
 	}
 	b.WriteString(")\n\n")
 
 	// Add functions to reach the desired line count
 	functionsNeeded := (lineCount - 20) / 10 // Rough estimate
 	for i := 0; i < functionsNeeded; i++ {
-		b.WriteString(fmt.Sprintf("func BenchFunction%d() string {\n", i))
+		fmt.Fprintf(&b, "func BenchFunction%d() string {\n", i)
 		b.WriteString("\tvar result strings.Builder\n")
 
 		// Add some repeated strings
 		for j := 0; j < 5; j++ {
-			b.WriteString(fmt.Sprintf("\tstr%d := \"repeated string %d\"\n", j, j%3))
+			fmt.Fprintf(&b, "\tstr%d := \"repeated string %d\"\n", j, j%3)
 		}
 
 		// Add some conditions
