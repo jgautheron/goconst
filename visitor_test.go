@@ -207,6 +207,135 @@ func example() {
 	}
 }
 
+func TestTreeVisitor_AllPositionsRecorded(t *testing.T) {
+	tests := []struct {
+		name             string
+		code             string
+		minOccurrences   int
+		str              string
+		expectedPosCount int
+	}{
+		{
+			name: "five occurrences with min 2",
+			code: `package example
+import "fmt"
+func example() {
+	a := "hello"
+	if a == "hello" {
+		fmt.Println("hello")
+	}
+	switch a {
+	case "hello":
+	}
+	b := "hello"
+	fmt.Println(b)
+}`,
+			minOccurrences:   2,
+			str:              "hello",
+			expectedPosCount: 5,
+		},
+		{
+			name: "five occurrences with min 3",
+			code: `package example
+import "fmt"
+func example() {
+	a := "hello"
+	if a == "hello" {
+		fmt.Println("hello")
+	}
+	switch a {
+	case "hello":
+	}
+	b := "hello"
+	fmt.Println(b)
+}`,
+			minOccurrences:   3,
+			str:              "hello",
+			expectedPosCount: 5,
+		},
+		{
+			name: "five occurrences with min 5",
+			code: `package example
+import "fmt"
+func example() {
+	a := "hello"
+	if a == "hello" {
+		fmt.Println("hello")
+	}
+	switch a {
+	case "hello":
+	}
+	b := "hello"
+	fmt.Println(b)
+}`,
+			minOccurrences:   5,
+			str:              "hello",
+			expectedPosCount: 5,
+		},
+		{
+			name: "three occurrences with min 2",
+			code: `package example
+func example() string {
+	a := "world"
+	b := "world"
+	return "world"
+}`,
+			minOccurrences:   2,
+			str:              "world",
+			expectedPosCount: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "example.go", tt.code, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse test code: %v", err)
+			}
+
+			p := &Parser{
+				minLength:        3,
+				minOccurrences:   tt.minOccurrences,
+				supportedTokens:  []token.Token{token.STRING},
+				excludeTypes:     map[Type]bool{},
+				strs:             Strings{},
+				consts:           Constants{},
+				stringCount:      make(map[string]int),
+				stringMutex:      sync.RWMutex{},
+				stringCountMutex: sync.RWMutex{},
+			}
+
+			v := &treeVisitor{
+				p:           p,
+				fileSet:     fset,
+				packageName: "example",
+			}
+
+			ast.Walk(v, f)
+
+			positions, ok := p.strs[tt.str]
+			if !ok {
+				t.Fatalf("Expected string %q in results, but it was not found", tt.str)
+			}
+
+			if len(positions) != tt.expectedPosCount {
+				t.Errorf("Expected %d positions for %q, got %d",
+					tt.expectedPosCount, tt.str, len(positions))
+				for i, pos := range positions {
+					t.Logf("  position %d: %s", i, pos.String())
+				}
+			}
+
+			count := p.GetStringCount(tt.str)
+			if count != tt.expectedPosCount {
+				t.Errorf("Expected string count %d for %q, got %d",
+					tt.expectedPosCount, tt.str, count)
+			}
+		})
+	}
+}
+
 func TestTreeVisitor_AddString(t *testing.T) {
 	tests := []struct {
 		name         string

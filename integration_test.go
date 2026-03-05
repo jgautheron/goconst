@@ -144,6 +144,78 @@ func TestIntegrationWithTestdata(t *testing.T) {
 	}
 }
 
+func TestIntegrationPositionCounts(t *testing.T) {
+	tests := []struct {
+		name           string
+		minOccurrences int
+		str            string
+		wantPositions  int
+	}{
+		{
+			name:           "test context has 5 positions with min 2",
+			minOccurrences: 2,
+			str:            "test context",
+			wantPositions:  5,
+		},
+		{
+			name:           "test context has 5 positions with min 3",
+			minOccurrences: 3,
+			str:            "test context",
+			wantPositions:  5,
+		},
+		{
+			name:           "test context has 5 positions with min 5",
+			minOccurrences: 5,
+			str:            "test context",
+			wantPositions:  5,
+		},
+		{
+			name:           "should be constant has positions with min 2",
+			minOccurrences: 2,
+			str:            "should be constant",
+			wantPositions:  2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := New(
+				"testdata",
+				"",    // ignore
+				"",    // ignoreStrings
+				false, // ignoreTests
+				false, // matchConstant
+				false, // numbers
+				false, // findDuplicates
+				false, // evalConstExpressions
+				0,     // numberMin
+				0,     // numberMax
+				3,     // minLength
+				tt.minOccurrences,
+				map[Type]bool{},
+			)
+
+			strs, _, err := p.ParseTree()
+			if err != nil {
+				t.Fatalf("ParseTree() error = %v", err)
+			}
+
+			positions, ok := strs[tt.str]
+			if !ok {
+				t.Fatalf("String %q not found in results", tt.str)
+			}
+
+			if len(positions) != tt.wantPositions {
+				t.Errorf("String %q: got %d positions, want %d",
+					tt.str, len(positions), tt.wantPositions)
+				for i, pos := range positions {
+					t.Logf("  position %d: %s", i, pos.String())
+				}
+			}
+		})
+	}
+}
+
 func TestIntegrationExcludeTypes(t *testing.T) {
 	tests := []struct {
 		name            string
