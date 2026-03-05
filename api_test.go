@@ -394,6 +394,52 @@ func allContexts(param string) string {
 	}
 }
 
+func TestCompositeLiteralContexts(t *testing.T) {
+	code := `package example
+type person struct {
+	name string
+}
+
+func compositeContexts() {
+	_ = []string{"repeated literal"}
+	_ = map[string]string{
+		"first":  "repeated literal",
+		"second": "repeated literal",
+	}
+	_ = person{name: "repeated literal"}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	config := &Config{
+		MinStringLength: 3,
+		MinOccurrences:  4,
+	}
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, config)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("Expected 1 issue, got %d", len(issues))
+	}
+
+	issue := issues[0]
+	if issue.Str != "repeated literal" {
+		t.Errorf("Issue.Str = %v, want %v", issue.Str, "repeated literal")
+	}
+	if issue.OccurrencesCount != 4 {
+		t.Errorf("Issue.OccurrencesCount = %v, want 4", issue.OccurrencesCount)
+	}
+}
+
 func TestExcludeByMultipleTypes(t *testing.T) {
 	// Test excluding multiple context types
 	code := `package example
