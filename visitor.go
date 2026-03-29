@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // treeVisitor is used to walk the AST and find strings that could be constants.
@@ -179,7 +180,7 @@ func (v *treeVisitor) addString(str string, pos token.Pos, typ Type) {
 	}
 
 	// Early length check
-	if len(unquotedStr) == 0 || len(unquotedStr) < v.p.minLength {
+	if len(unquotedStr) == 0 || utf8.RuneCountInString(unquotedStr) < v.p.minLength {
 		return
 	}
 
@@ -242,7 +243,7 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 	}
 
 	// Skip constants with values that would be filtered anyway
-	if len(unquotedVal) < v.p.minLength {
+	if utf8.RuneCountInString(unquotedVal) < v.p.minLength {
 		return
 	}
 

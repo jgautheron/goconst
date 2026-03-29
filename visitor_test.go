@@ -370,6 +370,14 @@ func TestTreeVisitor_AddString(t *testing.T) {
 			expectAdded:  false,
 		},
 		{
+			name:         "too short more than one byte for char",
+			str:          `"да"`,
+			typ:          Assignment,
+			excludeTypes: map[Type]bool{},
+			minLength:    3,
+			expectAdded:  false,
+		},
+		{
 			name:         "raw string literal",
 			str:          "`test`",
 			typ:          Assignment,
