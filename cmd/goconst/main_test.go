@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jgautheron/goconst"
 )
 
 func TestUsage(t *testing.T) {
@@ -320,6 +324,118 @@ func test() {
 
 		if duplicate2Count > 1 {
 			t.Errorf("Grouped output shows 'duplicate2' %d times, expected 1", duplicate2Count)
+		}
+	})
+}
+
+func TestParseCommaSeparatedValues(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{name: "empty", input: "", expected: nil},
+		{name: "single value", input: "foo", expected: []string{"foo"}},
+		{name: "simple split", input: "a,b,c", expected: []string{"a", "b", "c"}},
+		{name: "trailing empty", input: "a,b,", expected: []string{"a", "b", ""}},
+		{name: "leading empty", input: ",a", expected: []string{"", "a"}},
+		{name: "empty between", input: "a,,b", expected: []string{"a", "", "b"}},
+		{name: "escaped comma", input: `foo\,bar`, expected: []string{"foo,bar"}},
+		{name: "multiple escaped commas", input: `a\,b\,c`, expected: []string{"a,b,c"}},
+		{name: "mixed escaped and normal", input: `a,b\,c,d`, expected: []string{"a", "b,c", "d"}},
+		{name: "trailing backslash no escaped comma", input: `foo\`, expected: []string{`foo\`}},
+		{name: "escaped path trailing backslash", input: `a\,b\`, expected: []string{"a,b"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseCommaSeparatedValues(tt.input)
+			if !reflect.DeepEqual(got, tt.expected) {
+				t.Errorf("parseCommaSeparatedValues(%q) = %v, want %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestOccurrences(t *testing.T) {
+	pos := func(file string, line, col int) goconst.ExtendedPos {
+		return goconst.ExtendedPos{
+			Position: token.Position{Filename: file, Line: line, Column: col},
+		}
+	}
+
+	tests := []struct {
+		name    string
+		item    []goconst.ExtendedPos
+		current goconst.ExtendedPos
+		want    string
+	}{
+		{
+			name:    "single item equals current",
+			item:    []goconst.ExtendedPos{pos("a.go", 1, 1)},
+			current: pos("a.go", 1, 1),
+			want:    "",
+		},
+		{
+			name:    "two items current is first",
+			item:    []goconst.ExtendedPos{pos("a.go", 1, 1), pos("b.go", 2, 3)},
+			current: pos("a.go", 1, 1),
+			want:    "b.go:2:3",
+		},
+		{
+			name:    "three items current is middle",
+			item:    []goconst.ExtendedPos{pos("a.go", 1, 1), pos("b.go", 2, 3), pos("c.go", 4, 5)},
+			current: pos("b.go", 2, 3),
+			want:    "a.go:1:1 c.go:4:5",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := occurrences(tt.item, tt.current)
+			if got != tt.want {
+				t.Errorf("occurrences() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPrintOutput_EmptyMaps(t *testing.T) {
+	t.Run("text empty", func(t *testing.T) {
+		hasIssues, err := printOutput(goconst.Strings{}, goconst.Constants{}, "text")
+		if err != nil {
+			t.Fatalf("printOutput() error = %v", err)
+		}
+		if hasIssues {
+			t.Error("printOutput() returned true, want false")
+		}
+	})
+
+	t.Run("json nil", func(t *testing.T) {
+		oldStdout := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe() error = %v", err)
+		}
+		os.Stdout = w
+		defer func() {
+			os.Stdout = oldStdout
+			_ = r.Close()
+		}()
+
+		hasIssues, err := printOutput(nil, nil, "json")
+		if closeErr := w.Close(); closeErr != nil {
+			t.Fatalf("failed to close writer: %v", closeErr)
+		}
+		if _, readErr := io.ReadAll(r); readErr != nil {
+			t.Fatalf("failed to read output: %v", readErr)
+		}
+
+		if err != nil {
+			t.Fatalf("printOutput() error = %v", err)
+		}
+		if hasIssues {
+			t.Error("printOutput() returned true, want false")
 		}
 	})
 }
