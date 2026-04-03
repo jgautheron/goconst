@@ -8,6 +8,16 @@ There are obvious benefits to using constants instead of repeating strings, most
 
 While this could be considered a beginner mistake, across time, multiple packages and large codebases, some repetition could have slipped in.
 
+### How it works
+
+goconst detects string (and optionally number) literals that appear multiple times and could be replaced by a constant.
+
+A few things to keep in mind:
+
+- **Exact literal matching** — goconst compares complete, unquoted literal values. Repeated substrings inside larger strings are not detected (e.g., a shared prefix across two different string literals will not be reported).
+- **`const` declarations are skipped by default** — constant values are only analyzed when `-match-constant` (match strings against existing constants) or `-find-duplicates` (find constants sharing the same value) is enabled.
+- **String length is measured in runes**, not bytes, so multi-byte Unicode characters are counted correctly against `-min-length`.
+
 ### Get Started
 
     $ go install github.com/jgautheron/goconst/cmd/goconst@latest
