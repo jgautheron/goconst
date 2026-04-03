@@ -413,13 +413,23 @@ func TestPrintOutput_EmptyMaps(t *testing.T) {
 
 	t.Run("json nil", func(t *testing.T) {
 		oldStdout := os.Stdout
-		r, w, _ := os.Pipe()
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("os.Pipe() error = %v", err)
+		}
 		os.Stdout = w
-		defer func() { os.Stdout = oldStdout }()
+		defer func() {
+			os.Stdout = oldStdout
+			r.Close()
+		}()
 
 		hasIssues, err := printOutput(nil, nil, "json")
-		w.Close()
-		io.ReadAll(r)
+		if closeErr := w.Close(); closeErr != nil {
+			t.Fatalf("failed to close writer: %v", closeErr)
+		}
+		if _, readErr := io.ReadAll(r); readErr != nil {
+			t.Fatalf("failed to read output: %v", readErr)
+		}
 
 		if err != nil {
 			t.Fatalf("printOutput() error = %v", err)
