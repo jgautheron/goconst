@@ -27,6 +27,7 @@ func TestGolangCICompatibility(t *testing.T) {
 		},
 		IgnoreTests:          false,
 		EvalConstExpressions: true,
+		IgnoreFunctions:      []string{"slog.Info", "fmt.Errorf"},
 	}
 
 	// Create a simple test file
