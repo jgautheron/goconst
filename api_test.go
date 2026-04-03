@@ -1,6 +1,7 @@
 package goconst
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -324,13 +325,11 @@ const (
 				t.Fatalf("Expected %d issue, got %d", tt.expectedIssues, len(issues))
 			}
 
-			if len(issues) > 0 {
-				issue := issues[0]
+			for _, issue := range issues {
 				if issue.Str != tt.expectedStr {
 					t.Errorf("Issue.Str = %v, want %v", issue.Str, tt.expectedStr)
 				}
-
-				if issue.OccurrencesCount != tt.expectedOccurrenceCount {
+				if tt.expectedOccurrenceCount > 0 && issue.OccurrencesCount != tt.expectedOccurrenceCount {
 					t.Errorf("Issue.OccurrencesCount = %v, want %d", issue.OccurrencesCount, tt.expectedOccurrenceCount)
 				}
 			}
@@ -599,6 +598,59 @@ func example() {
 	}
 }
 
+func TestIssuePerFileThreeFiles(t *testing.T) {
+	sources := map[string]string{
+		"a.go": `package example
+func a() { _ = "dup"; _ = "dup" }`,
+		"b.go": `package example
+func b() { _ = "dup" }`,
+		"c.go": `package example
+func c() { _ = "dup" }`,
+	}
+
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for name, src := range sources {
+		f, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("Failed to parse %s: %v", name, err)
+		}
+		files = append(files, f)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files(files)
+
+	issues, err := Run(files, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 3 {
+		t.Fatalf("len(issues) = %d, want 3", len(issues))
+	}
+
+	fileSet := make(map[string]bool)
+	for _, issue := range issues {
+		if issue.Str != "dup" {
+			t.Errorf("Issue.Str = %v, want %v", issue.Str, "dup")
+		}
+		if issue.OccurrencesCount != 4 {
+			t.Errorf("Issue.OccurrencesCount = %v, want 4", issue.OccurrencesCount)
+		}
+		fileSet[issue.Pos.Filename] = true
+	}
+
+	for _, name := range []string{"a.go", "b.go", "c.go"} {
+		if !fileSet[name] {
+			t.Errorf("missing issue for file %s", name)
+		}
+	}
+}
+
 func TestIssuePerFile(t *testing.T) {
 	code := `package example
 func example() {
@@ -651,6 +703,213 @@ func testHelper() {
 	}
 	if !files["example_test.go"] {
 		t.Errorf("Issue.Pos.Filename: missing example_test.go")
+	}
+}
+
+func TestRunWithConfigEmptyFiles(t *testing.T) {
+	fset := token.NewFileSet()
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{})
+
+	issues, err := Run([]*ast.File{}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(issues) != 0 {
+		t.Errorf("len(issues) = %d, want 0", len(issues))
+	}
+}
+
+func TestRunWithConfigIgnoreTests(t *testing.T) {
+	code := `package example
+func example() {
+	a := "dup"
+	b := "dup"
+}`
+	testCode := `package example
+func testHelper() {
+	c := "dup"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse example.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "example_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse example_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		IgnoreTests:     true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+	issue := issues[0]
+	if issue.Pos.Filename != "example.go" {
+		t.Errorf("Issue.Pos.Filename = %v, want example.go", issue.Pos.Filename)
+	}
+	if issue.OccurrencesCount != 2 {
+		t.Errorf("Issue.OccurrencesCount = %v, want 2", issue.OccurrencesCount)
+	}
+}
+
+func TestNewWithIgnorePatterns_InvalidRegex(t *testing.T) {
+	code := `package example
+func example() {
+	a := "repeated"
+	b := "repeated"
+}`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	// Invalid regex pattern should not panic — graceful degradation
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		IgnoreStrings:   []string{"[invalid"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	// The invalid regex is silently skipped, so "repeated" should still be found
+	if len(issues) != 1 {
+		t.Errorf("len(issues) = %d, want 1", len(issues))
+	}
+}
+
+func TestRunWithConfig_ConcurrentSafety(t *testing.T) {
+	t.Parallel()
+
+	// Create 5 files each with the shared string "concurrent" appearing twice
+	var files []*ast.File
+	fset := token.NewFileSet()
+	for i := 0; i < 5; i++ {
+		code := `package example
+func f() {
+	a := "concurrent"
+	b := "concurrent"
+}`
+		f, err := parser.ParseFile(fset, fmt.Sprintf("file%d.go", i), code, 0)
+		if err != nil {
+			t.Fatalf("Failed to parse file%d.go: %v", i, err)
+		}
+		files = append(files, f)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files(files)
+
+	issues, err := Run(files, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Should have 5 issues (one per file)
+	if len(issues) != 5 {
+		t.Fatalf("len(issues) = %d, want 5", len(issues))
+	}
+
+	for _, issue := range issues {
+		if issue.OccurrencesCount != 10 {
+			t.Errorf("Issue.OccurrencesCount = %v, want 10", issue.OccurrencesCount)
+		}
+	}
+}
+
+func TestRunWithConfig_DuplicateConsts(t *testing.T) {
+	code := `package example
+const ConstA = "shared_value"
+const ConstB = "shared_value"
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		FindDuplicates: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+
+	issue := issues[0]
+	if issue.DuplicateConst == "" {
+		t.Error("Issue.DuplicateConst is empty, want a constant name")
+	}
+	if issue.DuplicatePos.Filename == "" {
+		t.Error("Issue.DuplicatePos.Filename is empty")
+	}
+	if issue.Str != "shared_value" {
+		t.Errorf("Issue.Str = %v, want shared_value", issue.Str)
+	}
+}
+
+func TestNewWithIgnorePatterns_MultiplePatterns(t *testing.T) {
+	code := `package example
+func example() {
+	a := "test_val"
+	b := "test_val"
+	c := "foo_val"
+	d := "foo_val"
+	e := "keep_val"
+	f := "keep_val"
+}`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		IgnoreStrings:   []string{"test", "foo"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+	if issues[0].Str != "keep_val" {
+		t.Errorf("Issue.Str = %v, want keep_val", issues[0].Str)
 	}
 }
 

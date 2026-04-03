@@ -94,6 +94,29 @@ func TestParser_ProcessResults(t *testing.T) {
 			minOccurrences: 2,
 			wantRemaining:  1, // only "100" should remain
 		},
+		{
+			name: "combined ignore and number range",
+			strs: Strings{
+				"test": []ExtendedPos{
+					{}, {},
+				},
+				"150": []ExtendedPos{
+					{}, {},
+				},
+				"300": []ExtendedPos{
+					{}, {},
+				},
+			},
+			stringCount: map[string]int{
+				"test": 2,
+				"150":  2,
+				"300":  2,
+			},
+			ignoreStrings:  "test",
+			minOccurrences: 2,
+			numberMin:      200,
+			wantRemaining:  1, // "test" filtered by regex, "150" filtered by numberMin, only "300" survives
+		},
 	}
 
 	for _, tt := range tests {
@@ -566,7 +589,69 @@ func foo() {
 			}
 		}
 	})
+}
 
+func TestParser_ShouldSkipPath(t *testing.T) {
+	tests := []struct {
+		name   string
+		ignore string
+		path   string
+		want   bool
+	}{
+		{name: "match vendor", ignore: "vendor", path: "path/vendor/file.go", want: true},
+		{name: "no match", ignore: "vendor", path: "path/src/file.go", want: false},
+		{name: "invalid regex", ignore: "[invalid", path: "any/path.go", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Parser{
+				ignore:      tt.ignore,
+				ignoreRegex: nil, // force fallback path
+			}
+			if got := p.shouldSkipPath(tt.path); got != tt.want {
+				t.Errorf("shouldSkipPath(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParser_SetConcurrency_EdgeCases(t *testing.T) {
+	p := New(".", "", "", false, false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
+	original := p.maxConcurrency
+
+	p.SetConcurrency(0)
+	if p.maxConcurrency != original {
+		t.Errorf("SetConcurrency(0) changed maxConcurrency to %d", p.maxConcurrency)
+	}
+
+	p.SetConcurrency(-1)
+	if p.maxConcurrency != original {
+		t.Errorf("SetConcurrency(-1) changed maxConcurrency to %d", p.maxConcurrency)
+	}
+
+	p.SetConcurrency(4)
+	if p.maxConcurrency != 4 {
+		t.Errorf("SetConcurrency(4): maxConcurrency = %d, want 4", p.maxConcurrency)
+	}
+}
+
+func TestParser_EnableBatchProcessing_EdgeCases(t *testing.T) {
+	p := New(".", "", "", false, false, false, false, false, 0, 0, 3, 2, map[Type]bool{})
+	defaultBatchSize := p.batchSize
+
+	p.EnableBatchProcessing(0)
+	if !p.enableBatching {
+		t.Error("EnableBatchProcessing(0): enableBatching should be true")
+	}
+	if p.batchSize != defaultBatchSize {
+		t.Errorf("EnableBatchProcessing(0): batchSize changed to %d, want %d", p.batchSize, defaultBatchSize)
+	}
+
+	p.EnableBatchProcessing(100)
+	if p.batchSize != 100 {
+		t.Errorf("EnableBatchProcessing(100): batchSize = %d, want 100", p.batchSize)
+	}
 }
 
 // BenchmarkFileTraversal tests the performance of different traversal strategies

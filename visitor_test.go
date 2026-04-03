@@ -138,6 +138,18 @@ func example() {
 			expectedConstCounts: map[string]int{"test": 3},
 			excludeTypes:        map[Type]bool{},
 		},
+		{
+			name: "non-equality binary operators ignored",
+			code: `package example
+func example() {
+	var a, b string
+	if a < "foo" {}
+	if b > "bar" {}
+}`,
+			expectedStrings:     []string{},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -378,8 +390,32 @@ func TestTreeVisitor_AddString(t *testing.T) {
 			expectAdded:  false,
 		},
 		{
+			name:         "unicode string counted by runes",
+			str:          `"привет"`,
+			typ:          Assignment,
+			excludeTypes: map[Type]bool{},
+			minLength:    3,
+			expectAdded:  true,
+		},
+		{
+			name:         "unicode string exactly at threshold",
+			str:          `"猫犬鳥"`,
+			typ:          Assignment,
+			excludeTypes: map[Type]bool{},
+			minLength:    3,
+			expectAdded:  true,
+		},
+		{
 			name:         "raw string literal",
 			str:          "`test`",
+			typ:          Assignment,
+			excludeTypes: map[Type]bool{},
+			minLength:    3,
+			expectAdded:  true,
+		},
+		{
+			name:         "malformed quote fallback",
+			str:          `"unclosed`, // strconv.Unquote fails; fallback strips first+last byte → "unclose"
 			typ:          Assignment,
 			excludeTypes: map[Type]bool{},
 			minLength:    3,
@@ -415,6 +451,86 @@ func TestTreeVisitor_AddString(t *testing.T) {
 			} else {
 				if len(p.strs) != 0 {
 					t.Errorf("Expected string not to be added, but it was")
+				}
+			}
+		})
+	}
+}
+
+func TestTreeVisitor_AddConst_UnicodeMinLength(t *testing.T) {
+	fset := token.NewFileSet()
+
+	p := &Parser{
+		minLength:        3,
+		matchConstant:    true,
+		findDuplicates:   true,
+		supportedTokens:  []token.Token{token.STRING},
+		strs:             Strings{},
+		consts:           Constants{},
+		stringCount:      make(map[string]int),
+		stringMutex:      sync.RWMutex{},
+		stringCountMutex: sync.RWMutex{},
+	}
+
+	v := &treeVisitor{
+		p:           p,
+		fileSet:     fset,
+		packageName: "example",
+	}
+
+	v.addConst("TooShort", `"да"`, token.Pos(1))
+	v.addConst("LongEnough", `"привет"`, token.Pos(2))
+
+	if _, ok := p.consts["да"]; ok {
+		t.Error("did not expect short unicode const to be added")
+	}
+	if _, ok := p.consts["привет"]; !ok {
+		t.Error("expected unicode const to be added")
+	}
+}
+
+func TestTreeVisitor_AddString_NumberRange(t *testing.T) {
+	tests := []struct {
+		name        string
+		str         string
+		numberMin   int
+		numberMax   int
+		expectAdded bool
+	}{
+		{name: "below min", str: "50", numberMin: 100, numberMax: 200, expectAdded: false},
+		{name: "in range", str: "150", numberMin: 100, numberMax: 200, expectAdded: true},
+		{name: "above max", str: "250", numberMin: 100, numberMax: 200, expectAdded: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Parser{
+				minLength:        1,
+				numberMin:        tt.numberMin,
+				numberMax:        tt.numberMax,
+				excludeTypes:     map[Type]bool{},
+				strs:             Strings{},
+				stringCount:      make(map[string]int),
+				stringMutex:      sync.RWMutex{},
+				stringCountMutex: sync.RWMutex{},
+			}
+
+			fset := token.NewFileSet()
+			v := &treeVisitor{
+				p:           p,
+				fileSet:     fset,
+				packageName: "example",
+			}
+
+			v.addString(tt.str, token.Pos(1), Assignment)
+
+			if tt.expectAdded {
+				if len(p.strs) != 1 {
+					t.Errorf("expected string to be added, but it wasn't")
+				}
+			} else {
+				if len(p.strs) != 0 {
+					t.Errorf("expected string not to be added, but it was")
 				}
 			}
 		})
