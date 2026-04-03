@@ -420,7 +420,7 @@ func TestPrintOutput_EmptyMaps(t *testing.T) {
 		os.Stdout = w
 		defer func() {
 			os.Stdout = oldStdout
-			r.Close()
+			_ = r.Close()
 		}()
 
 		hasIssues, err := printOutput(nil, nil, "json")
