@@ -28,6 +28,7 @@ Flags:
   -match-constant    look for existing constants matching the strings
   -find-duplicates   look for constants with identical values
   -eval-const-expr   enable evaluation of constant expressions (e.g., Prefix + "suffix")
+  -ignore-calls      ignore string literals in calls to these functions (comma separated)
   -numbers           search also for duplicated numbers
   -min               minimum value, only works with -numbers
   -max               maximum value, only works with -numbers
@@ -43,6 +44,7 @@ Examples:
   goconst -numbers -min 60 -max 512 .
   goconst -min-occurrences 5 $(go list -m -f '{{.Dir}}')
   goconst -eval-const-expr -match-constant . # Matches constant expressions like Prefix + "suffix"
+  goconst -ignore-calls slog.Info,slog.Warn,fmt.Errorf ./... # Ignore strings in logging/error calls
 `
 
 var (
@@ -60,6 +62,7 @@ var (
 	flagOutput         = flag.String("output", "text", "output formatting")
 	flagSetExitStatus  = flag.Bool("set-exit-status", false, "Set exit status to 2 if any issues are found")
 	flagGrouped        = flag.Bool("grouped", false, "print single line per match, only works with -output text")
+	flagIgnoreCalls    = flag.String("ignore-calls", "", "ignore string literals in calls to these functions (comma separated, e.g. slog.Info,fmt.Errorf)")
 )
 
 func main() {
@@ -118,6 +121,11 @@ func run(path string) (bool, error) {
 		*flagMinOccurrences,
 		map[goconst.Type]bool{},
 	)
+
+	if *flagIgnoreCalls != "" {
+		gco.SetIgnoreFunctions(parseCommaSeparatedValues(*flagIgnoreCalls))
+	}
+
 	strs, consts, err := gco.ParseTree()
 	if err != nil {
 		return false, err

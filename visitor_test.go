@@ -536,3 +536,108 @@ func TestTreeVisitor_AddString_NumberRange(t *testing.T) {
 		})
 	}
 }
+
+func TestTreeVisitor_ShouldIgnoreCall(t *testing.T) {
+	tests := []struct {
+		name            string
+		code            string
+		ignoreFunctions map[string]struct{}
+		expectStrings   int
+	}{
+		{
+			name: "slog.Info ignored",
+			code: `package example
+import "log/slog"
+func example() {
+	slog.Info("msg")
+	slog.Info("msg")
+}`,
+			ignoreFunctions: map[string]struct{}{"slog.Info": {}},
+			expectStrings:   0,
+		},
+		{
+			name: "println not ignored when slog.Info is",
+			code: `package example
+func example() {
+	println("msg")
+	println("msg")
+}`,
+			ignoreFunctions: map[string]struct{}{"slog.Info": {}},
+			expectStrings:   1,
+		},
+		{
+			name: "empty ignore list ignores nothing",
+			code: `package example
+import "log/slog"
+func example() {
+	slog.Info("msg")
+	slog.Info("msg")
+}`,
+			ignoreFunctions: nil,
+			expectStrings:   1,
+		},
+		{
+			name: "direct function call ignored",
+			code: `package example
+func example() {
+	println("msg")
+	println("msg")
+}`,
+			ignoreFunctions: map[string]struct{}{"println": {}},
+			expectStrings:   0,
+		},
+		{
+			name: "multiple ignored functions",
+			code: `package example
+import "fmt"
+func example() {
+	fmt.Println("keep")
+	fmt.Println("keep")
+	fmt.Errorf("skip")
+	fmt.Errorf("skip")
+}`,
+			ignoreFunctions: map[string]struct{}{"fmt.Errorf": {}},
+			expectStrings:   1, // only "keep" via fmt.Println
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "example.go", tt.code, 0)
+			if err != nil {
+				t.Fatalf("Failed to parse test code: %v", err)
+			}
+
+			p := &Parser{
+				minLength:        3,
+				minOccurrences:   2,
+				supportedTokens:  []token.Token{token.STRING},
+				excludeTypes:     map[Type]bool{},
+				ignoreFunctions:  tt.ignoreFunctions,
+				strs:             Strings{},
+				consts:           Constants{},
+				matchConstant:    false,
+				stringCount:      make(map[string]int),
+				stringMutex:      sync.RWMutex{},
+				stringCountMutex: sync.RWMutex{},
+			}
+
+			v := &treeVisitor{
+				p:           p,
+				fileSet:     fset,
+				packageName: "example",
+			}
+
+			ast.Walk(v, f)
+			p.ProcessResults()
+
+			if len(p.strs) != tt.expectStrings {
+				t.Errorf("expected %d strings, got %d", tt.expectStrings, len(p.strs))
+				for str, positions := range p.strs {
+					t.Logf("  found: %q (%d occurrences)", str, len(positions))
+				}
+			}
+		})
+	}
+}

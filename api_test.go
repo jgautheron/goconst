@@ -913,6 +913,73 @@ func example() {
 	}
 }
 
+func TestRunWithConfig_IgnoreFunctions(t *testing.T) {
+	code := `package example
+import "log/slog"
+func example() {
+	slog.Info("msg")
+	slog.Info("msg")
+	println("other")
+	println("other")
+}`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		IgnoreFunctions: []string{"slog.Info"},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+	if issues[0].Str != "other" {
+		t.Errorf("Issue.Str = %v, want other", issues[0].Str)
+	}
+}
+
+func TestRunWithConfig_IgnoreFunctions_Empty(t *testing.T) {
+	code := `package example
+func example() {
+	println("msg")
+	println("msg")
+}`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		IgnoreFunctions: nil,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+	if issues[0].Str != "msg" {
+		t.Errorf("Issue.Str = %v, want msg", issues[0].Str)
+	}
+}
+
 func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
 	cfg := &types.Config{
 		Error: func(err error) {},

@@ -45,6 +45,9 @@ type Config struct {
 	FindDuplicates bool
 	// EvalConstExpressions enables evaluation of constant expressions like Prefix + "suffix"
 	EvalConstExpressions bool
+	// IgnoreFunctions is a list of function names whose string arguments should be ignored.
+	// Supports direct calls (e.g., "println") and one-level qualified calls (e.g., "slog.Info").
+	IgnoreFunctions []string
 }
 
 // NewWithIgnorePatterns creates a new instance of the parser with support for multiple ignore patterns.
@@ -107,6 +110,10 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 		cfg.MinOccurrences,
 		cfg.ExcludeTypes,
 	)
+
+	if len(cfg.IgnoreFunctions) > 0 {
+		p.SetIgnoreFunctions(cfg.IgnoreFunctions)
+	}
 
 	// Pre-allocate slice based on estimated result size
 	expectedIssues := len(files) * 5 // Assuming average of 5 issues per file
