@@ -275,6 +275,7 @@ func (p *Parser) SetIgnoreFunctions(names []string) {
 	}
 	m := make(map[string]struct{}, len(names))
 	for _, name := range names {
+		name = strings.TrimSpace(name)
 		if name != "" {
 			m[name] = struct{}{}
 		}
