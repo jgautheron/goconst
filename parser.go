@@ -270,6 +270,7 @@ func (p *Parser) EnableBatchProcessing(batchSize int) {
 // qualified calls (e.g., "slog.Info", "fmt.Errorf").
 func (p *Parser) SetIgnoreFunctions(names []string) {
 	if len(names) == 0 {
+		p.ignoreFunctions = nil
 		return
 	}
 	m := make(map[string]struct{}, len(names))
