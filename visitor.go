@@ -285,8 +285,10 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 	v.p.constMutex.Lock()
 	defer v.p.constMutex.Unlock()
 
-	// track this const if this is a new const, or if we are searching for duplicate consts
-	if _, ok := v.p.consts[internedVal]; !ok || v.p.findDuplicates {
+	// Collect the constant when it is the first with this value, when
+	// duplicate detection needs all of them, or when constant matching
+	// needs all of them to pick the best per scope.
+	if _, ok := v.p.consts[internedVal]; !ok || v.p.findDuplicates || v.p.matchConstant {
 		v.p.consts[internedVal] = append(v.p.consts[internedVal], ConstType{
 			Name:        internedName,
 			packageName: internedPkg,
