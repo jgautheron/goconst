@@ -12,6 +12,8 @@ import (
 // Issue represents a finding of duplicated strings, numbers, or constants.
 // Each Issue includes the position where it was found, how many times it occurs,
 // the string itself, and any matching constant name.
+// When both test and non-test files are analyzed, OccurrencesCount reflects
+// the count within the issue's scope (test or non-test) rather than the global total.
 type Issue struct {
 	Pos              token.Position
 	OccurrencesCount int
@@ -152,13 +154,14 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 				wg.Done()
 			}()
 
-			// Use empty interned strings for package/file names
-			// The visitor logic will set these appropriately
-			emptyStr := InternString("")
+			pkgName := ""
+			if f.Name != nil {
+				pkgName = f.Name.Name
+			}
 
 			ast.Walk(&treeVisitor{
 				fileSet:     fset,
-				packageName: emptyStr,
+				packageName: InternString(pkgName),
 				p:           p,
 				ignoreRegex: p.ignoreStringsRegex,
 				typeInfo:    typeInfo,
@@ -177,7 +180,8 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	// Create a slice to hold the string keys
 	stringKeys := make([]string, 0, len(p.strs))
 
-	// Create an array of strings to sort for stable output
+	// Global count is a coarse prefilter; the reporting loop below
+	// re-applies minOccurrences per scope (test vs non-test).
 	for str := range p.strs {
 		if count := p.stringCount[str]; count >= p.minOccurrences {
 			stringKeys = append(stringKeys, str)
@@ -189,21 +193,51 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	// Emit one issue per file where the string appears, so that
 	// path-based exclusion can independently filter each one without
 	// suppressing legitimate findings in other files.
+	// Occurrence counts are scoped: test-file issues report test-file
+	// counts and non-test issues report non-test counts, preventing
+	// test-file occurrences from inflating production-file reports.
 	for _, str := range stringKeys {
-		positions := p.strs[str]
+		// Copy positions so the sort does not mutate the map value
+		// under the read lock.
+		positions := append([]ExtendedPos(nil), p.strs[str]...)
 		if len(positions) == 0 {
 			continue
 		}
 
-		occurrences := p.stringCount[str]
+		sortPositions(positions)
 
-		var matchingConst string
-		if len(p.consts) > 0 {
-			p.constMutex.RLock()
-			if csts, ok := p.consts[str]; ok && len(csts) > 0 {
-				matchingConst = csts[0].Name
+		var nonTestCount, testCount int
+		for _, pos := range positions {
+			if strings.HasSuffix(pos.Filename, testSuffix) {
+				testCount++
+			} else {
+				nonTestCount++
 			}
+		}
+
+		// Resolve matching constants per scope so that non-test issues
+		// never reference test-only constants (which production code
+		// cannot use). Test issues may reference any constant.
+		// Only resolve when MatchWithConstants is enabled; FindDuplicates
+		// also populates p.consts but should not affect string issues.
+		var anyMatchingConst, nonTestMatchingConst string
+		if p.matchConstant {
+			p.constMutex.RLock()
+			raw := p.consts[str]
 			p.constMutex.RUnlock()
+
+			if len(raw) > 0 {
+				// Copy so the sort does not mutate the map value.
+				csts := append([]ConstType(nil), raw...)
+				sortConstants(csts)
+				anyMatchingConst = csts[0].Name
+				for _, cst := range csts {
+					if !strings.HasSuffix(cst.Filename, testSuffix) {
+						nonTestMatchingConst = cst.Name
+						break
+					}
+				}
+			}
 		}
 
 		seen := make(map[string]bool)
@@ -213,9 +247,25 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 			}
 			seen[pos.Filename] = true
 
+			isTest := strings.HasSuffix(pos.Filename, testSuffix)
+
+			scopeCount := nonTestCount
+			if isTest {
+				scopeCount = testCount
+			}
+
+			if scopeCount < p.minOccurrences {
+				continue
+			}
+
+			matchingConst := nonTestMatchingConst
+			if isTest && matchingConst == "" {
+				matchingConst = anyMatchingConst
+			}
+
 			issueBuffer = append(issueBuffer, Issue{
 				Pos:              pos.Position,
-				OccurrencesCount: occurrences,
+				OccurrencesCount: scopeCount,
 				Str:              str,
 				MatchingConst:    matchingConst,
 			})
@@ -225,36 +275,52 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	p.stringCountMutex.RUnlock()
 	p.stringMutex.RUnlock()
 
-	// process duplicate constants
-	p.constMutex.RLock()
+	// Process duplicate constants only when explicitly requested.
+	// p.consts may also be populated by matchConstant for constant
+	// matching, but those extra entries should not trigger duplicate reports.
+	if p.findDuplicates {
+		p.constMutex.RLock()
 
-	// Create a new slice for const keys
-	stringKeys = make([]string, 0, len(p.consts))
+		stringKeys = make([]string, 0, len(p.consts))
 
-	// Create an array of strings and sort for stable output
-	for str := range p.consts {
-		if len(p.consts[str]) > 1 {
-			stringKeys = append(stringKeys, str)
+		for str := range p.consts {
+			if len(p.consts[str]) > 1 {
+				stringKeys = append(stringKeys, str)
+			}
 		}
-	}
 
-	sort.Strings(stringKeys)
+		sort.Strings(stringKeys)
 
-	// report an issue for every duplicated const
-	for _, str := range stringKeys {
-		positions := p.consts[str]
+		// Report an issue for every duplicated const within the same scope.
+		// Test and non-test constants are compared independently so that a
+		// test constant is never flagged as duplicate of a production one.
+		for _, str := range stringKeys {
+			allConsts := p.consts[str]
 
-		for i := 1; i < len(positions); i++ {
-			issueBuffer = append(issueBuffer, Issue{
-				Pos:            positions[i].Position,
-				Str:            str,
-				DuplicateConst: positions[0].Name,
-				DuplicatePos:   positions[0].Position,
-			})
+			var nonTestConsts, testConsts []ConstType
+			for _, cst := range allConsts {
+				if strings.HasSuffix(cst.Filename, testSuffix) {
+					testConsts = append(testConsts, cst)
+				} else {
+					nonTestConsts = append(nonTestConsts, cst)
+				}
+			}
+
+			for _, scopeConsts := range [][]ConstType{nonTestConsts, testConsts} {
+				sortConstants(scopeConsts)
+				for i := 1; i < len(scopeConsts); i++ {
+					issueBuffer = append(issueBuffer, Issue{
+						Pos:            scopeConsts[i].Position,
+						Str:            str,
+						DuplicateConst: scopeConsts[0].Name,
+						DuplicatePos:   scopeConsts[0].Position,
+					})
+				}
+			}
 		}
-	}
 
-	p.constMutex.RUnlock()
+		p.constMutex.RUnlock()
+	}
 
 	// Don't return the buffer to pool as the caller now owns it
 	return issueBuffer, nil
@@ -265,4 +331,26 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 // It returns a slice of Issue objects containing the findings.
 func Run(files []*ast.File, fset *token.FileSet, typeInfo *types.Info, cfg *Config) ([]Issue, error) {
 	return RunWithConfig(files, fset, typeInfo, cfg)
+}
+
+func lessPosition(a, b token.Position) bool {
+	if a.Filename != b.Filename {
+		return a.Filename < b.Filename
+	}
+	if a.Line != b.Line {
+		return a.Line < b.Line
+	}
+	return a.Column < b.Column
+}
+
+func sortPositions(positions []ExtendedPos) {
+	sort.Slice(positions, func(i, j int) bool {
+		return lessPosition(positions[i].Position, positions[j].Position)
+	})
+}
+
+func sortConstants(consts []ConstType) {
+	sort.Slice(consts, func(i, j int) bool {
+		return lessPosition(consts[i].Position, consts[j].Position)
+	})
 }

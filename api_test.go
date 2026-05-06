@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"strings"
 	"testing"
 )
 
@@ -683,26 +684,21 @@ func testHelper() {
 		t.Fatalf("Run() error = %v", err)
 	}
 
-	if len(issues) != 2 {
-		t.Fatalf("len(issues) = %d, want 2", len(issues))
+	// Per-scope counting: "repeated" has 2 non-test occurrences and
+	// 1 test occurrence. Only the non-test scope meets MinOccurrences=2.
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
 	}
 
-	files := make(map[string]bool)
-	for _, issue := range issues {
-		if issue.Str != "repeated" {
-			t.Errorf("Issue.Str = %v, want %v", issue.Str, "repeated")
-		}
-		if issue.OccurrencesCount != 3 {
-			t.Errorf("Issue.OccurrencesCount = %v, want 3", issue.OccurrencesCount)
-		}
-		files[issue.Pos.Filename] = true
+	issue := issues[0]
+	if issue.Str != "repeated" {
+		t.Errorf("Issue.Str = %v, want repeated", issue.Str)
 	}
-
-	if !files["example.go"] {
-		t.Errorf("Issue.Pos.Filename: missing example.go")
+	if issue.OccurrencesCount != 2 {
+		t.Errorf("Issue.OccurrencesCount = %v, want 2", issue.OccurrencesCount)
 	}
-	if !files["example_test.go"] {
-		t.Errorf("Issue.Pos.Filename: missing example_test.go")
+	if issue.Pos.Filename != "example.go" {
+		t.Errorf("Issue.Pos.Filename = %v, want example.go", issue.Pos.Filename)
 	}
 }
 
@@ -765,6 +761,551 @@ func testHelper() {
 	}
 	if issue.OccurrencesCount != 2 {
 		t.Errorf("Issue.OccurrencesCount = %v, want 2", issue.OccurrencesCount)
+	}
+}
+
+func TestIssue57_TestFileInflation(t *testing.T) {
+	code := `package example
+func boolFunc() {
+	_ = "false"
+}`
+	testCode := `package example
+func testBoolFunc() {
+	_ = "false"
+	_ = "false"
+	_ = "false"
+	_ = "false"
+	_ = "false"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "bool.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse bool.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "bool_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse bool_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  4,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// bool.go has 1 occurrence (below threshold of 4) — no issue.
+	// bool_test.go has 5 occurrences (meets threshold) — issue emitted.
+	if len(issues) != 1 {
+		t.Fatalf("len(issues) = %d, want 1", len(issues))
+	}
+
+	issue := issues[0]
+	if issue.Pos.Filename != "bool_test.go" {
+		t.Errorf("Issue.Pos.Filename = %v, want bool_test.go", issue.Pos.Filename)
+	}
+	if issue.OccurrencesCount != 5 {
+		t.Errorf("Issue.OccurrencesCount = %v, want 5", issue.OccurrencesCount)
+	}
+	if issue.Str != "false" {
+		t.Errorf("Issue.Str = %v, want false", issue.Str)
+	}
+}
+
+func TestIssue57_PerScopeThreshold(t *testing.T) {
+	code := `package example
+func prodFunc() {
+	_ = "shared"
+	_ = "shared"
+}`
+	testCode := `package example
+func testFunc() {
+	_ = "shared"
+	_ = "shared"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "prod.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "prod_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  3,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Global count is 4 (survives ProcessResults with minOccurrences=3),
+	// but nonTestCount=2 < 3 and testCount=2 < 3, so no issues emitted.
+	if len(issues) != 0 {
+		t.Errorf("len(issues) = %d, want 0", len(issues))
+		for _, issue := range issues {
+			t.Logf("Unexpected issue: %q at %s with %d occurrences",
+				issue.Str, issue.Pos.Filename, issue.OccurrencesCount)
+		}
+	}
+}
+
+func TestIssue57_BothScopesMeetThreshold(t *testing.T) {
+	code := `package example
+func prodFunc() {
+	_ = "common"
+	_ = "common"
+	_ = "common"
+}`
+	testCode := `package example
+func testFunc() {
+	_ = "common"
+	_ = "common"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "lib.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse lib.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "lib_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse lib_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Both scopes meet threshold: 2 issues with per-scope counts.
+	if len(issues) != 2 {
+		t.Fatalf("len(issues) = %d, want 2", len(issues))
+	}
+
+	counts := make(map[string]int)
+	for _, issue := range issues {
+		if issue.Str != "common" {
+			t.Errorf("Issue.Str = %v, want common", issue.Str)
+		}
+		counts[issue.Pos.Filename] = issue.OccurrencesCount
+	}
+
+	if counts["lib.go"] != 3 {
+		t.Errorf("lib.go OccurrencesCount = %v, want 3", counts["lib.go"])
+	}
+	if counts["lib_test.go"] != 2 {
+		t.Errorf("lib_test.go OccurrencesCount = %v, want 2", counts["lib_test.go"])
+	}
+}
+
+func TestMatchingConst_CrossScopeLeakage(t *testing.T) {
+	// Reproduces cross-scope leakage: a constant declared only in a test
+	// file should not be suggested as MatchingConst for a production issue,
+	// because production code cannot reference test-only constants.
+	code := `package example
+func prodFunc() {
+	_ = "magic-value"
+	_ = "magic-value"
+}`
+	testCode := `package example
+const TestMagic = "magic-value"
+func testFunc() {
+	_ = "magic-value"
+	_ = "magic-value"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "prod.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "prod_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength:    3,
+		MinOccurrences:     2,
+		MatchWithConstants: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Both scopes meet threshold → 2 issues.
+	if len(issues) != 2 {
+		t.Fatalf("len(issues) = %d, want 2", len(issues))
+	}
+
+	for _, issue := range issues {
+		if issue.Pos.Filename == "prod.go" && issue.MatchingConst != "" {
+			// BUG: prod.go issue references TestMagic which is defined
+			// only in prod_test.go — production code cannot use it.
+			t.Errorf("prod.go issue has MatchingConst=%q from test file; "+
+				"production issues should not reference test-only constants",
+				issue.MatchingConst)
+		}
+	}
+}
+
+func TestFindDuplicates_CrossScopeLeakage(t *testing.T) {
+	// Reproduces cross-scope leakage for FindDuplicates: a constant
+	// in a test file should not be reported as a duplicate of a
+	// production constant (or vice versa), because they live in
+	// different scopes.
+	code := `package example
+const ProdConst = "shared-value"
+`
+	testCode := `package example
+const TestConst = "shared-value"
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "prod.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "prod_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  1,
+		FindDuplicates:  true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, issue := range issues {
+		if issue.DuplicateConst == "" {
+			continue
+		}
+		issueIsTest := strings.HasSuffix(issue.Pos.Filename, "_test.go")
+		dupIsTest := strings.HasSuffix(issue.DuplicatePos.Filename, "_test.go")
+		if issueIsTest != dupIsTest {
+			// BUG: cross-scope duplicate reported — a test constant
+			// is flagged as duplicate of a production constant.
+			t.Errorf("cross-scope duplicate: %s (%s) flagged as duplicate of %s (%s)",
+				issue.Str, issue.Pos.Filename,
+				issue.DuplicateConst, issue.DuplicatePos.Filename)
+		}
+	}
+}
+
+func TestMatchingConst_FindDuplicatesOnly(t *testing.T) {
+	// When FindDuplicates is enabled but MatchWithConstants is not,
+	// p.consts gets populated for duplicate detection. The reporting
+	// loop should NOT set MatchingConst on string issues in this case.
+	code := `package example
+const MyConst = "some-value"
+func example() {
+	_ = "some-value"
+	_ = "some-value"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		MinStringLength:    3,
+		MinOccurrences:     2,
+		FindDuplicates:     true,
+		MatchWithConstants: false,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, issue := range issues {
+		if issue.DuplicateConst != "" {
+			continue // skip duplicate-const issues
+		}
+		if issue.MatchingConst != "" {
+			// BUG: MatchingConst is set even though MatchWithConstants=false,
+			// because FindDuplicates also populates p.consts.
+			t.Errorf("MatchingConst = %q for string %q, want empty "+
+				"(MatchWithConstants is false)", issue.MatchingConst, issue.Str)
+		}
+	}
+}
+
+func TestNondeterministicOutput(t *testing.T) {
+	// With concurrent visitors, positions are appended in arbitrary
+	// goroutine order. This can make issue positions and the selected
+	// MatchingConst vary between runs. Verify output is deterministic.
+	sources := map[string]string{
+		"a.go": `package example
+func a() { _ = "ndet"; _ = "ndet" }`,
+		"b.go": `package example
+func b() { _ = "ndet"; _ = "ndet" }`,
+		"c.go": `package example
+func c() { _ = "ndet"; _ = "ndet" }`,
+		"d.go": `package example
+func d() { _ = "ndet"; _ = "ndet" }`,
+		"e.go": `package example
+func e() { _ = "ndet"; _ = "ndet" }`,
+	}
+
+	// Run 10 times and collect the issue ordering each time.
+	var firstRun []string
+	for attempt := 0; attempt < 10; attempt++ {
+		fset := token.NewFileSet()
+		var files []*ast.File
+		// Parse in deterministic order.
+		for _, name := range []string{"a.go", "b.go", "c.go", "d.go", "e.go"} {
+			f, err := parser.ParseFile(fset, name, sources[name], 0)
+			if err != nil {
+				t.Fatalf("Failed to parse %s: %v", name, err)
+			}
+			files = append(files, f)
+		}
+
+		chkr, info := checker(fset)
+		_ = chkr.Files(files)
+
+		issues, err := Run(files, fset, info, &Config{
+			MinStringLength: 3,
+			MinOccurrences:  2,
+		})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+
+		var order []string
+		for _, issue := range issues {
+			order = append(order, fmt.Sprintf("%s:%d", issue.Pos.Filename, issue.Pos.Line))
+		}
+
+		if attempt == 0 {
+			firstRun = order
+		} else {
+			if len(order) != len(firstRun) {
+				t.Fatalf("attempt %d: got %d issues, first run had %d", attempt, len(order), len(firstRun))
+			}
+			for i := range order {
+				if order[i] != firstRun[i] {
+					// BUG: issue ordering varies between runs due to
+					// nondeterministic concurrent visitor appends.
+					t.Errorf("attempt %d: issue[%d] = %s, first run had %s",
+						attempt, i, order[i], firstRun[i])
+				}
+			}
+		}
+	}
+}
+
+func TestMatchWithConstantsAndFindDuplicates(t *testing.T) {
+	// Both MatchWithConstants and FindDuplicates enabled — a realistic
+	// golangci-lint config. Verify matching constant resolution and
+	// duplicate detection work correctly together.
+	code := `package example
+const ProdConst = "shared"
+func example() {
+	_ = "shared"
+	_ = "shared"
+}`
+	code2 := `package example
+const ProdConst2 = "shared"
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "a.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse a.go: %v", err)
+	}
+	f2, err := parser.ParseFile(fset, "b.go", code2, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse b.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, f2})
+
+	issues, err := Run([]*ast.File{f, f2}, fset, info, &Config{
+		MinStringLength:    3,
+		MinOccurrences:     2,
+		MatchWithConstants: true,
+		FindDuplicates:     true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	var stringIssues, dupIssues []Issue
+	for _, issue := range issues {
+		if issue.DuplicateConst != "" {
+			dupIssues = append(dupIssues, issue)
+		} else {
+			stringIssues = append(stringIssues, issue)
+		}
+	}
+
+	// String issues should have MatchingConst set.
+	for _, issue := range stringIssues {
+		if issue.Str != "shared" {
+			continue
+		}
+		if issue.MatchingConst == "" {
+			t.Errorf("string issue at %s missing MatchingConst", issue.Pos.Filename)
+		}
+	}
+
+	// Duplicate const issue: ProdConst2 is a duplicate of ProdConst
+	// (or vice versa, depending on position sort order).
+	if len(dupIssues) != 1 {
+		t.Fatalf("len(dupIssues) = %d, want 1", len(dupIssues))
+	}
+	if dupIssues[0].DuplicateConst == "" {
+		t.Error("duplicate issue missing DuplicateConst")
+	}
+}
+
+func TestTestOnlyString(t *testing.T) {
+	// String appears only in test files with IgnoreTests=false.
+	// Should produce a test-file issue but no production issue.
+	code := `package example
+func prodFunc() {
+	_ = "other"
+}`
+	testCode := `package example
+func testFunc() {
+	_ = "testonly"
+	_ = "testonly"
+	_ = "testonly"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "prod.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "prod_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse prod_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, issue := range issues {
+		if issue.Str != "testonly" {
+			continue
+		}
+		if issue.Pos.Filename != "prod_test.go" {
+			t.Errorf("testonly issue at %s, want prod_test.go", issue.Pos.Filename)
+		}
+		if issue.OccurrencesCount != 3 {
+			t.Errorf("testonly OccurrencesCount = %d, want 3", issue.OccurrencesCount)
+		}
+	}
+
+	// Verify no prod.go issue for "testonly" (it doesn't appear there).
+	for _, issue := range issues {
+		if issue.Str == "testonly" && issue.Pos.Filename == "prod.go" {
+			t.Error("unexpected prod.go issue for test-only string")
+		}
+	}
+}
+
+func TestMatchingConst_CrossScopePreference(t *testing.T) {
+	// When constants exist in both scopes, non-test issues should use
+	// the non-test constant. Test issues should prefer the non-test
+	// constant but fall back to test constants.
+	code := `package example
+const ProdConst = "val"
+func prodFunc() {
+	_ = "val"
+	_ = "val"
+}`
+	testCode := `package example
+const TestConst = "val"
+func testFunc() {
+	_ = "val"
+	_ = "val"
+}`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "lib.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse lib.go: %v", err)
+	}
+	fTest, err := parser.ParseFile(fset, "lib_test.go", testCode, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse lib_test.go: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f, fTest})
+
+	issues, err := Run([]*ast.File{f, fTest}, fset, info, &Config{
+		MinStringLength:    3,
+		MinOccurrences:     2,
+		MatchWithConstants: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, issue := range issues {
+		if issue.Str != "val" {
+			continue
+		}
+		switch issue.Pos.Filename {
+		case "lib.go":
+			if issue.MatchingConst != "ProdConst" {
+				t.Errorf("lib.go MatchingConst = %q, want ProdConst",
+					issue.MatchingConst)
+			}
+		case "lib_test.go":
+			// Test issue should prefer non-test constant (ProdConst)
+			// since test code can reference production constants.
+			if issue.MatchingConst != "ProdConst" {
+				t.Errorf("lib_test.go MatchingConst = %q, want ProdConst",
+					issue.MatchingConst)
+			}
+		}
 	}
 }
 
