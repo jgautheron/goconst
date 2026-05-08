@@ -160,9 +160,9 @@ func testHelper() {
 	if issue.OccurrencesCount != 2 {
 		t.Errorf("OccurrencesCount = %d, want 2", issue.OccurrencesCount)
 	}
-	// The matching constant should NOT reference TestMagic from the test file.
-	if issue.MatchingConst == "TestMagic" {
-		t.Errorf("MatchingConst = %q — production issue references test-only constant",
+	// No production constant exists for "magic", so MatchingConst must be empty.
+	if issue.MatchingConst != "" {
+		t.Errorf("MatchingConst = %q, want empty (no production constant exists)",
 			issue.MatchingConst)
 	}
 }
@@ -282,6 +282,72 @@ const TestConst = "dup-val"
 	}
 	if dup.DuplicateConst != "ProdConst1" && dup.DuplicateConst != "ProdConst2" {
 		t.Errorf("DuplicateConst = %q, want ProdConst1 or ProdConst2", dup.DuplicateConst)
+	}
+}
+
+// TestGolangCILintConfig_NumbersAndIgnoreFunctions exercises config fields
+// that golangci-lint exposes: ParseNumbers, NumberMin, NumberMax, and
+// IgnoreFunctions.
+func TestGolangCILintConfig_NumbersAndIgnoreFunctions(t *testing.T) {
+	code := `package example
+func example() {
+	_ = 42
+	_ = 42
+	_ = 200
+	_ = 200
+	_ = 5000
+	_ = 5000
+
+	slog.Info("ignored-by-func")
+	slog.Info("ignored-by-func")
+
+	_ = "detected"
+	_ = "detected"
+}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	cfg := &goconst.Config{
+		MinStringLength: 1,
+		MinOccurrences:  2,
+		ParseNumbers:    true,
+		NumberMin:       100,
+		NumberMax:       1000,
+		IgnoreFunctions: []string{"slog.Info"},
+	}
+
+	issues, err := goconst.Run([]*ast.File{f}, fset, info, cfg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	found := make(map[string]bool)
+	for _, issue := range issues {
+		found[issue.Str] = true
+	}
+
+	if !found["200"] {
+		t.Error("expected issue for 200 (in NumberMin/NumberMax range)")
+	}
+	if found["42"] {
+		t.Error("unexpected issue for 42 (below NumberMin)")
+	}
+	if found["5000"] {
+		t.Error("unexpected issue for 5000 (above NumberMax)")
+	}
+	if found["ignored-by-func"] {
+		t.Error("unexpected issue for 'ignored-by-func' (filtered by IgnoreFunctions)")
+	}
+	if !found["detected"] {
+		t.Error("expected issue for 'detected'")
 	}
 }
 
