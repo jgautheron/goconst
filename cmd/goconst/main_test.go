@@ -37,6 +37,7 @@ func TestUsage(t *testing.T) {
 		"-ignore",
 		"-ignore-strings",
 		"-ignore-tests",
+		"-ignore-composite-literals",
 		"-min-occurrences",
 		"-min-length",
 		"-match-constant",
@@ -85,6 +86,44 @@ func test() {
 	}
 	if !hasIssues {
 		t.Error("run() returned false, expected true")
+	}
+}
+
+func TestRunIgnoreCompositeLiterals(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "goconst-composite-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer func() {
+		removeErr := os.RemoveAll(tempDir)
+		if removeErr != nil {
+			t.Errorf("Failed to remove temp directory: %v", removeErr)
+		}
+	}()
+
+	testFile := filepath.Join(tempDir, "composite.go")
+	testContent := `package test
+func test() {
+	_ = []string{"repeated literal"}
+	_ = []string{"repeated literal"}
+}`
+	writeErr := os.WriteFile(testFile, []byte(testContent), 0644)
+	if writeErr != nil {
+		t.Fatalf("Failed to write test file: %v", writeErr)
+	}
+
+	oldIgnoreCompositeLiterals := *flagIgnoreCompositeLiterals
+	*flagIgnoreCompositeLiterals = true
+	defer func() {
+		*flagIgnoreCompositeLiterals = oldIgnoreCompositeLiterals
+	}()
+
+	hasIssues, err := run(tempDir)
+	if err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+	if hasIssues {
+		t.Error("run() returned true, expected false")
 	}
 }
 

@@ -20,21 +20,22 @@ Usage:
 
 Flags:
 
-  -ignore            exclude files matching the given regular expression
-  -ignore-strings    exclude strings matching the given regular expression
-  -ignore-tests      exclude tests from the search (default: true)
-  -min-occurrences   report from how many occurrences (default: 2)
-  -min-length        only report strings with the minimum given length (default: 3)
-  -match-constant    look for existing constants matching the strings
-  -find-duplicates   look for constants with identical values
-  -eval-const-expr   enable evaluation of constant expressions (e.g., Prefix + "suffix")
-  -ignore-calls      ignore string literals in calls to these functions (comma separated)
-  -numbers           search also for duplicated numbers
-  -min               minimum value, only works with -numbers
-  -max               maximum value, only works with -numbers
-  -output            output formatting (text or json)
-  -set-exit-status   Set exit status to 2 if any issues are found
-  -grouped           print single line per match, only works with -output text
+  -ignore                     exclude files matching the given regular expression
+  -ignore-strings             exclude strings matching the given regular expression
+  -ignore-tests               exclude tests from the search (default: true)
+  -min-occurrences            report from how many occurrences (default: 2)
+  -min-length                 only report strings with the minimum given length (default: 3)
+  -match-constant             look for existing constants matching the strings
+  -find-duplicates            look for constants with identical values
+  -eval-const-expr            enable evaluation of constant expressions (e.g., Prefix + "suffix")
+  -ignore-calls               ignore string literals in calls to these functions (comma separated)
+  -ignore-composite-literals  ignore string literals inside composite literals
+  -numbers                    search also for duplicated numbers
+  -min                        minimum value, only works with -numbers
+  -max                        maximum value, only works with -numbers
+  -output                     output formatting (text or json)
+  -set-exit-status            Set exit status to 2 if any issues are found
+  -grouped                    print single line per match, only works with -output text
 
 Examples:
 
@@ -48,21 +49,22 @@ Examples:
 `
 
 var (
-	flagIgnore         = flag.String("ignore", "", "ignore files matching the given regular expression")
-	flagIgnoreStrings  = flag.String("ignore-strings", "", "ignore strings matching the given regular expressions (comma separated)")
-	flagIgnoreTests    = flag.Bool("ignore-tests", true, "exclude tests from the search")
-	flagMinOccurrences = flag.Int("min-occurrences", 2, "report from how many occurrences")
-	flagMinLength      = flag.Int("min-length", 3, "only report strings with the minimum given length")
-	flagMatchConstant  = flag.Bool("match-constant", false, "look for existing constants matching the strings")
-	flagFindDuplicates = flag.Bool("find-duplicates", false, "look for constants with duplicated values")
-	flagEvalConstExpr  = flag.Bool("eval-const-expr", false, "enable evaluation of constant expressions (e.g., Prefix + \"suffix\")")
-	flagNumbers        = flag.Bool("numbers", false, "search also for duplicated numbers")
-	flagMin            = flag.Int("min", 0, "minimum value, only works with -numbers")
-	flagMax            = flag.Int("max", 0, "maximum value, only works with -numbers")
-	flagOutput         = flag.String("output", "text", "output formatting")
-	flagSetExitStatus  = flag.Bool("set-exit-status", false, "Set exit status to 2 if any issues are found")
-	flagGrouped        = flag.Bool("grouped", false, "print single line per match, only works with -output text")
-	flagIgnoreCalls    = flag.String("ignore-calls", "", "ignore string literals in calls to these functions (comma separated, e.g. slog.Info,fmt.Errorf)")
+	flagIgnore                  = flag.String("ignore", "", "ignore files matching the given regular expression")
+	flagIgnoreStrings           = flag.String("ignore-strings", "", "ignore strings matching the given regular expressions (comma separated)")
+	flagIgnoreTests             = flag.Bool("ignore-tests", true, "exclude tests from the search")
+	flagMinOccurrences          = flag.Int("min-occurrences", 2, "report from how many occurrences")
+	flagMinLength               = flag.Int("min-length", 3, "only report strings with the minimum given length")
+	flagMatchConstant           = flag.Bool("match-constant", false, "look for existing constants matching the strings")
+	flagFindDuplicates          = flag.Bool("find-duplicates", false, "look for constants with duplicated values")
+	flagEvalConstExpr           = flag.Bool("eval-const-expr", false, "enable evaluation of constant expressions (e.g., Prefix + \"suffix\")")
+	flagNumbers                 = flag.Bool("numbers", false, "search also for duplicated numbers")
+	flagMin                     = flag.Int("min", 0, "minimum value, only works with -numbers")
+	flagMax                     = flag.Int("max", 0, "maximum value, only works with -numbers")
+	flagOutput                  = flag.String("output", "text", "output formatting")
+	flagSetExitStatus           = flag.Bool("set-exit-status", false, "Set exit status to 2 if any issues are found")
+	flagGrouped                 = flag.Bool("grouped", false, "print single line per match, only works with -output text")
+	flagIgnoreCalls             = flag.String("ignore-calls", "", "ignore string literals in calls to these functions (comma separated, e.g. slog.Info,fmt.Errorf)")
+	flagIgnoreCompositeLiterals = flag.Bool("ignore-composite-literals", false, "ignore string literals inside composite literals")
 )
 
 func main() {
@@ -105,6 +107,7 @@ func run(path string) (bool, error) {
 		// Split by commas but handle escaping
 		ignoreStrings = parseCommaSeparatedValues(*flagIgnoreStrings)
 	}
+	excludeTypes := excludeTypesFromFlags()
 
 	gco := goconst.NewWithIgnorePatterns(
 		path,
@@ -119,7 +122,7 @@ func run(path string) (bool, error) {
 		*flagMax,
 		*flagMinLength,
 		*flagMinOccurrences,
-		map[goconst.Type]bool{},
+		excludeTypes,
 	)
 
 	if *flagIgnoreCalls != "" {
@@ -132,6 +135,14 @@ func run(path string) (bool, error) {
 	}
 
 	return printOutput(strs, consts, *flagOutput)
+}
+
+func excludeTypesFromFlags() map[goconst.Type]bool {
+	excludeTypes := map[goconst.Type]bool{}
+	if *flagIgnoreCompositeLiterals {
+		excludeTypes[goconst.CompositeLit] = true
+	}
+	return excludeTypes
 }
 
 // parseCommaSeparatedValues splits a comma-separated string into a slice of strings,
