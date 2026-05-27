@@ -327,6 +327,7 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 		// run type checker
 		info := &types.Info{
 			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
 		}
 
 		chkConfig := &types.Config{
@@ -438,6 +439,7 @@ func (p *Parser) parseTreeConcurrent(rootPath string, recursive bool) (Strings, 
 	// Type checking must be performed serially to avoid data races.
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
 	}
 
 	chkConfig := &types.Config{
@@ -684,6 +686,7 @@ func (p *Parser) parseTreeBatched(rootPath string, recursive bool) (Strings, Con
 		// Type check -- must be processed serially to avoid data races
 		info := &types.Info{
 			Types: make(map[ast.Expr]types.TypeAndValue),
+			Defs:  make(map[*ast.Ident]types.Object),
 		}
 
 		chkConfig := &types.Config{
@@ -874,6 +877,13 @@ type ConstType struct {
 	// Interned strings to reduce memory usage
 	Name        string
 	packageName string
+	valueKey    string
+}
+
+// ValueKey returns the internal comparison key used to distinguish constants
+// whose display values may be approximate, such as high-precision numbers.
+func (c ConstType) ValueKey() string {
+	return c.valueKey
 }
 
 // ExtendedPos extends token.Position with package information.
