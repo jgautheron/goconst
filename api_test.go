@@ -440,6 +440,53 @@ func compositeContexts() {
 	}
 }
 
+func TestExcludeCompositeLiteralsConfig(t *testing.T) {
+	code := `package example
+type person struct {
+	name string
+}
+
+func compositeContexts() {
+	first := "kept literal"
+	second := "kept literal"
+	_ = []string{"ignored literal"}
+	_ = map[string]string{"first": "ignored literal"}
+	_ = person{name: "ignored literal"}
+	_ = []string{first, second}
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	excludeTypes := map[Type]bool{}
+	excludeTypes[CompositeLit] = true
+
+	config := &Config{
+		MinStringLength: 3,
+		MinOccurrences:  2,
+		ExcludeTypes:    excludeTypes,
+	}
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, config)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("Expected 1 issue, got %d", len(issues))
+	}
+
+	issue := issues[0]
+	if issue.Str != "kept literal" {
+		t.Errorf("Issue.Str = %v, want %v", issue.Str, "kept literal")
+	}
+}
+
 func TestExcludeByMultipleTypes(t *testing.T) {
 	// Test excluding multiple context types
 	code := `package example
