@@ -71,6 +71,17 @@ func example() {
 			expectedIssues: 1,
 		},
 		{
+			name: "distinct long computed consts are not duplicates",
+			code: `package example
+const Foo = "this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-foo"
+const Bar = "this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-bar"`,
+			config: &Config{
+				FindDuplicates:       true,
+				EvalConstExpressions: true,
+			},
+			expectedIssues: 0,
+		},
+		{
 			name: "string duplication with ignore",
 			code: `package example
 func example() {
@@ -583,6 +594,7 @@ const (
 	Prefix = "example.com/"
 	Label1 = Prefix + "some_label"
 	Label2 = Prefix + "another_label"
+	LongLabel = "this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-foo"
 )
 
 func example() {
@@ -593,6 +605,9 @@ func example() {
 	// This should also match
 	web1 := "example.com/another_label"
 	web2 := "example.com/another_label"
+
+	long1 := "this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-foo"
+	long2 := "this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-foo"
 }
 `
 	fset := token.NewFileSet()
@@ -619,11 +634,12 @@ func example() {
 	expectedMatches := map[string]string{
 		"example.com/some_label":    "Label1",
 		"example.com/another_label": "Label2",
+		"this-is-a-non-duplicate-long-string-constant-with-a-distinctive-suffix-foo": "LongLabel",
 	}
 
-	// Check that we have two issues
-	if len(issues) != 2 {
-		t.Errorf("Expected 2 issues, got %d", len(issues))
+	// Check that we have one issue for each repeated string.
+	if len(issues) != len(expectedMatches) {
+		t.Errorf("Expected %d issues, got %d", len(expectedMatches), len(issues))
 		for _, issue := range issues {
 			t.Logf("Found issue: %q matches constant %q with %d occurrences",
 				issue.Str, issue.MatchingConst, issue.OccurrencesCount)
@@ -642,6 +658,117 @@ func example() {
 		if issue.MatchingConst != expectedConst {
 			t.Errorf("For string %q: got matching const %q, want %q",
 				issue.Str, issue.MatchingConst, expectedConst)
+		}
+	}
+}
+
+func TestConstExpressionsNumericConstantsUseLiteralFormat(t *testing.T) {
+	code := `package example
+
+const Half = 0.5
+
+func example() {
+	a := 0.5
+	b := 0.5
+}
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	config := &Config{
+		MinStringLength:      1,
+		MinOccurrences:       2,
+		MatchWithConstants:   true,
+		EvalConstExpressions: true,
+		ParseNumbers:         true,
+	}
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, config)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(issues) != 1 {
+		t.Fatalf("Expected 1 issue, got %d: %#v", len(issues), issues)
+	}
+
+	if issues[0].Str != "0.5" {
+		t.Errorf("Str = %q, want 0.5", issues[0].Str)
+	}
+	if issues[0].MatchingConst != "Half" {
+		t.Errorf("MatchingConst = %q, want Half", issues[0].MatchingConst)
+	}
+}
+
+func TestFindDuplicatesWithImplicitConstValues(t *testing.T) {
+	code := `package example
+const (
+	ImplicitA = "implicit-value"
+	ImplicitB
+)
+const Explicit = "implicit-value"
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		FindDuplicates:       true,
+		EvalConstExpressions: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	duplicateNames := map[string]bool{}
+	for _, issue := range issues {
+		if issue.DuplicateConst != "" {
+			duplicateNames[issue.Pos.String()] = true
+		}
+	}
+
+	if len(duplicateNames) != 2 {
+		t.Fatalf("expected 2 duplicate issues for implicit and explicit duplicates, got %d: %#v", len(duplicateNames), issues)
+	}
+}
+
+func TestFindDuplicatesWithHighPrecisionNumericConstants(t *testing.T) {
+	code := `package example
+const Foo = 0.123456789012345678901234567890123456789
+const Bar = 0.123456789012345678901234567890123456788
+`
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse test code: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	issues, err := Run([]*ast.File{f}, fset, info, &Config{
+		FindDuplicates:       true,
+		EvalConstExpressions: true,
+		ParseNumbers:         true,
+		MinStringLength:      1,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, issue := range issues {
+		if issue.DuplicateConst != "" {
+			t.Fatalf("unexpected duplicate issue for distinct high precision constants: %#v", issue)
 		}
 	}
 }
@@ -1574,6 +1701,7 @@ func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
 	}
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
 	}
 	return types.NewChecker(cfg, fset, types.NewPackage("", "example"), info), info
 }

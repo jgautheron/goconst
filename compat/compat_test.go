@@ -357,6 +357,7 @@ func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
 	}
 	info := &types.Info{
 		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
 	}
 	return types.NewChecker(cfg, fset, types.NewPackage("", "example"), info), info
 }

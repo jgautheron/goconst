@@ -43,21 +43,42 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 
 		for _, spec := range t.Specs {
 			val := spec.(*ast.ValueSpec)
+			if v.typeInfo != nil && v.p.evalConstExpressions {
+				if len(v.typeInfo.Defs) > 0 {
+					addedFromDefs := false
+					for _, name := range val.Names {
+						obj, ok := v.typeInfo.Defs[name].(*types.Const)
+						if !ok || obj.Val() == nil || !v.isSupportedKind(obj.Val().Kind()) {
+							continue
+						}
+
+						displayValue, valueKey := constValueStrings(obj.Val())
+						v.addConst(name.Name, displayValue, name.Pos(), valueKey)
+						addedFromDefs = true
+					}
+					if addedFromDefs || len(val.Values) == 0 {
+						continue
+					}
+				}
+			}
+
 			for i, str := range val.Values {
 				if v.typeInfo != nil && v.p.evalConstExpressions {
 					typedVal, ok := v.typeInfo.Types[str]
-					if !ok || !v.isSupportedKind(typedVal.Value.Kind()) {
+					if !ok || typedVal.Value == nil || !v.isSupportedKind(typedVal.Value.Kind()) {
 						continue
 					}
 
-					v.addConst(val.Names[i].Name, typedVal.Value.String(), str.Pos())
-				} else {
-					lit, ok := str.(*ast.BasicLit)
-					if !ok || !v.isSupported(lit.Kind) {
-						continue
-					}
-					v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
+					displayValue, valueKey := constValueStrings(typedVal.Value)
+					v.addConst(val.Names[i].Name, displayValue, str.Pos(), valueKey)
+					continue
 				}
+
+				lit, ok := str.(*ast.BasicLit)
+				if !ok || !v.isSupported(lit.Kind) {
+					continue
+				}
+				v.addConst(val.Names[i].Name, lit.Value, val.Names[i].Pos())
 			}
 		}
 
@@ -128,6 +149,13 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 	}
 
 	return v
+}
+
+func constValueStrings(val constant.Value) (string, string) {
+	if val.Kind() == constant.String {
+		return val.ExactString(), "string:" + constant.StringVal(val)
+	}
+	return val.String(), val.Kind().String() + ":" + val.ExactString()
 }
 
 func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr) {
@@ -245,7 +273,7 @@ func (v *treeVisitor) addString(str string, pos token.Pos, typ Type) {
 }
 
 // addConst adds a const in the map along with its position in the tree.
-func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
+func (v *treeVisitor) addConst(name string, val string, pos token.Pos, valueKey ...string) {
 	// Early filtering using the same criteria as for strings
 	var unquotedVal string
 	if strings.HasPrefix(val, `"`) || strings.HasPrefix(val, "`") {
@@ -280,6 +308,10 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 	internedVal := InternString(unquotedVal)
 	internedName := InternString(name)
 	internedPkg := InternString(v.packageName)
+	internedKey := internedVal
+	if len(valueKey) > 0 && valueKey[0] != "" {
+		internedKey = InternString(valueKey[0])
+	}
 
 	// Lock to safely update the shared map
 	v.p.constMutex.Lock()
@@ -292,6 +324,7 @@ func (v *treeVisitor) addConst(name string, val string, pos token.Pos) {
 		v.p.consts[internedVal] = append(v.p.consts[internedVal], ConstType{
 			Name:        internedName,
 			packageName: internedPkg,
+			valueKey:    internedKey,
 			Position:    v.fileSet.Position(pos),
 		})
 	}

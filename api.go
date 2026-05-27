@@ -281,21 +281,11 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 	if p.findDuplicates {
 		p.constMutex.RLock()
 
-		stringKeys = make([]string, 0, len(p.consts))
-
-		for str := range p.consts {
-			if len(p.consts[str]) > 1 {
-				stringKeys = append(stringKeys, str)
-			}
-		}
-
-		sort.Strings(stringKeys)
-
 		// Report an issue for every duplicated const within the same scope.
 		// Test and non-test constants are compared independently so that a
 		// test constant is never flagged as duplicate of a production one.
-		for _, str := range stringKeys {
-			allConsts := p.consts[str]
+		for _, group := range duplicateConstGroups(p.consts) {
+			allConsts := group.consts
 
 			var nonTestConsts, testConsts []ConstType
 			for _, cst := range allConsts {
@@ -311,7 +301,7 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 				for i := 1; i < len(scopeConsts); i++ {
 					issueBuffer = append(issueBuffer, Issue{
 						Pos:            scopeConsts[i].Position,
-						Str:            str,
+						Str:            group.displayValue,
 						DuplicateConst: scopeConsts[0].Name,
 						DuplicatePos:   scopeConsts[0].Position,
 					})
@@ -353,4 +343,42 @@ func sortConstants(consts []ConstType) {
 	sort.Slice(consts, func(i, j int) bool {
 		return lessPosition(consts[i].Position, consts[j].Position)
 	})
+}
+
+type duplicateConstGroup struct {
+	displayValue string
+	consts       []ConstType
+}
+
+func duplicateConstGroups(consts Constants) []duplicateConstGroup {
+	groups := make(map[string]duplicateConstGroup, len(consts))
+	for displayValue, values := range consts {
+		for _, cst := range values {
+			key := cst.ValueKey()
+			if key == "" {
+				key = displayValue
+			}
+
+			group := groups[key]
+			if group.displayValue == "" || displayValue < group.displayValue {
+				group.displayValue = displayValue
+			}
+			group.consts = append(group.consts, cst)
+			groups[key] = group
+		}
+	}
+
+	keys := make([]string, 0, len(groups))
+	for key, group := range groups {
+		if len(group.consts) > 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	result := make([]duplicateConstGroup, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, groups[key])
+	}
+	return result
 }

@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/jgautheron/goconst"
@@ -240,12 +241,12 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 				fmt.Printf("\n\t%s\n", csts[0].String())
 			}
 		}
-		for val, csts := range consts {
-			if len(csts) > 1 {
-				fmt.Printf("Duplicate constant(s) with value %q have been found:\n", val)
+		for _, group := range duplicateConstGroups(consts) {
+			if len(group.consts) > 1 {
+				fmt.Printf("Duplicate constant(s) with value %q have been found:\n", group.displayValue)
 
-				for i := 0; i < len(csts); i++ {
-					fmt.Printf("\t%s: %s\n", csts[i].String(), csts[i].Name)
+				for i := 0; i < len(group.consts); i++ {
+					fmt.Printf("\t%s: %s\n", group.consts[i].String(), group.consts[i].Name)
 				}
 			}
 		}
@@ -253,6 +254,44 @@ func printOutput(strs goconst.Strings, consts goconst.Constants, output string) 
 		return false, fmt.Errorf("unsupported output format: %s", output)
 	}
 	return len(strs)+len(consts) > 0, nil
+}
+
+type duplicateConstGroup struct {
+	displayValue string
+	consts       []goconst.ConstType
+}
+
+func duplicateConstGroups(consts goconst.Constants) []duplicateConstGroup {
+	groups := make(map[string]duplicateConstGroup, len(consts))
+	for displayValue, values := range consts {
+		for _, cst := range values {
+			key := cst.ValueKey()
+			if key == "" {
+				key = displayValue
+			}
+
+			group := groups[key]
+			if group.displayValue == "" || displayValue < group.displayValue {
+				group.displayValue = displayValue
+			}
+			group.consts = append(group.consts, cst)
+			groups[key] = group
+		}
+	}
+
+	keys := make([]string, 0, len(groups))
+	for key, group := range groups {
+		if len(group.consts) > 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	result := make([]duplicateConstGroup, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, groups[key])
+	}
+	return result
 }
 
 // occurrences formats a list of all occurrences of a string, excluding the current position.
