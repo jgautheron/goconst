@@ -15,6 +15,8 @@ func TestTreeVisitor_Visit(t *testing.T) {
 		expectedStrings     []string
 		expectedConstCounts map[string]int
 		excludeTypes        map[Type]bool
+		ignoreMapKeys       bool
+		supportedTokens     []token.Token // defaults to STRING only when nil
 	}{
 		{
 			name: "assignment detection",
@@ -150,6 +152,169 @@ func example() {
 			expectedConstCounts: map[string]int{},
 			excludeTypes:        map[Type]bool{},
 		},
+		{
+			name: "map keys ignored, values kept",
+			code: `package example
+func example() {
+	_ = map[string]string{"key": "value1"}
+	_ = map[string]string{"key": "value2"}
+}`,
+			expectedStrings:     []string{"value1", "value2"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			name: "map keys kept when not ignored",
+			code: `package example
+func example() {
+	_ = map[string]string{"key": "value1"}
+}`,
+			expectedStrings:     []string{"key", "value1"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+		},
+		{
+			name: "ignore-map-keys leaves slice and struct literals untouched",
+			code: `package example
+type person struct {
+	name string
+}
+
+func example() {
+	_ = []string{"aaa"}
+	_ = person{name: "bbb"}
+}`,
+			expectedStrings:     []string{"aaa", "bbb"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// Named map type: the literal's AST type is an *ast.Ident, so this
+			// relies on string keys being recognized without type information.
+			name: "map keys ignored for named map type without type info",
+			code: `package example
+type M map[string]string
+func example() {
+	_ = M{"key": "value1"}
+	_ = M{"key": "value2"}
+}`,
+			expectedStrings:     []string{"value1", "value2"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// Nested elided map literals have a nil AST type; string keys must
+			// still be ignored without type information.
+			name: "map keys ignored for elided nested map literals",
+			code: `package example
+func example() {
+	_ = []map[string]string{
+		{"key": "value1"},
+		{"key": "value2"},
+	}
+}`,
+			expectedStrings:     []string{"value1", "value2"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// The skip targets the KeyValueExpr key node, not the string value:
+			// the same literal used elsewhere (here as an assignment) is kept.
+			name: "map key skip is per-occurrence, not a global blacklist",
+			code: `package example
+func example() {
+	_ = map[string]string{"dup": "value"}
+	a := "dup"
+	_ = a
+}`,
+			expectedStrings:     []string{"dup", "value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// IgnoreMapKeys is scoped to string keys by design; numeric keys are
+			// left in place (they are indistinguishable from array indices
+			// without type information).
+			name: "numeric map keys still reported (string-only scope)",
+			code: `package example
+func example() {
+	_ = map[int]string{100: "value"}
+}`,
+			expectedStrings:     []string{"100", "value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+			supportedTokens:     []token.Token{token.STRING, token.INT},
+		},
+		{
+			// A raw (backtick) string key is also token.STRING and must be ignored.
+			name: "raw string map keys are ignored too",
+			code: "package example\n" +
+				"func example() {\n" +
+				"\t_ = map[string]string{`rawkey`: \"value1\"}\n" +
+				"\t_ = map[string]string{`rawkey`: \"value2\"}\n" +
+				"}",
+			expectedStrings:     []string{"value1", "value2"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// Key wrapped in a builtin conversion: the string subtree must be
+			// pruned so the later CallExpr visit does not record it.
+			name: "converted string map keys are ignored",
+			code: `package example
+func example() {
+	_ = map[string]string{string("key"): "value"}
+}`,
+			expectedStrings:     []string{"value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			// Named-string-typed key via conversion (map[K]V{K("role"): ...}).
+			name: "converted named-string map keys are ignored",
+			code: `package example
+type K string
+func example() {
+	_ = map[K]string{K("role"): "value"}
+}`,
+			expectedStrings:     []string{"value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+		},
+		{
+			name: "converted map keys kept when not ignored",
+			code: `package example
+type K string
+func example() {
+	_ = map[K]string{K("role"): "value"}
+}`,
+			expectedStrings:     []string{"role", "value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+		},
+		{
+			// Array index expressions are not map keys; their literals must
+			// survive even with ignore-map-keys enabled (isMap gate).
+			name: "numeric array index expressions are not suppressed",
+			code: `package example
+func example() {
+	_ = [500]string{int(100): "value"}
+}`,
+			expectedStrings:     []string{"100", "value"},
+			expectedConstCounts: map[string]int{},
+			excludeTypes:        map[Type]bool{},
+			ignoreMapKeys:       true,
+			supportedTokens:     []token.Token{token.STRING, token.INT},
+		},
 	}
 
 	for _, tt := range tests {
@@ -160,11 +325,17 @@ func example() {
 				t.Fatalf("Failed to parse test code: %v", err)
 			}
 
+			supportedTokens := tt.supportedTokens
+			if supportedTokens == nil {
+				supportedTokens = []token.Token{token.STRING}
+			}
+
 			p := &Parser{
 				minLength:        3,
 				minOccurrences:   1,
-				supportedTokens:  []token.Token{token.STRING},
+				supportedTokens:  supportedTokens,
 				excludeTypes:     tt.excludeTypes,
+				ignoreMapKeys:    tt.ignoreMapKeys,
 				strs:             Strings{},
 				consts:           Constants{},
 				matchConstant:    true,

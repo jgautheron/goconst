@@ -50,6 +50,9 @@ type Config struct {
 	// IgnoreFunctions is a list of function names whose string arguments should be ignored.
 	// Supports direct calls (e.g., "println") and one-level qualified calls (e.g., "slog.Info").
 	IgnoreFunctions []string
+	// IgnoreMapKeys ignores string literals used as keys in map literals
+	// (e.g., the "key" in map[string]any{"key": "value"}).
+	IgnoreMapKeys bool
 }
 
 // NewWithIgnorePatterns creates a new instance of the parser with support for multiple ignore patterns.
@@ -115,6 +118,10 @@ func RunWithConfig(files []*ast.File, fset *token.FileSet, typeInfo *types.Info,
 
 	if len(cfg.IgnoreFunctions) > 0 {
 		p.SetIgnoreFunctions(cfg.IgnoreFunctions)
+	}
+
+	if cfg.IgnoreMapKeys {
+		p.SetIgnoreMapKeys(true)
 	}
 
 	// Pre-allocate slice based on estimated result size

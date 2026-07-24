@@ -42,6 +42,7 @@ Flags:
   -eval-const-expr            enable evaluation of constant expressions (e.g., Prefix + "suffix")
   -ignore-calls               ignore string literals in calls to these functions (comma separated)
   -ignore-composite-literals  ignore string literals inside composite literals
+  -ignore-map-keys            ignore string literals used as map keys
   -numbers                    search also for duplicated numbers
   -min                        minimum value, only works with -numbers
   -max                        maximum value, only works with -numbers
