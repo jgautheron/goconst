@@ -18,6 +18,12 @@ type treeVisitor struct {
 	packageName string
 	p           *Parser
 	ignoreRegex *regexp.Regexp
+
+	// skipNodes holds map-key expression subtrees to skip entirely while
+	// walking, used by -ignore-map-keys for keys that are not plain literals
+	// (e.g. NamedString("key")). Populated per file; the walk is single
+	// threaded so no synchronization is needed.
+	skipNodes map[ast.Node]struct{}
 }
 
 // Visit browses the AST tree for strings that could be potentially
@@ -26,6 +32,12 @@ type treeVisitor struct {
 func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 	if node == nil {
 		return v
+	}
+
+	// Prune map-key expression subtrees flagged by -ignore-map-keys so their
+	// string literals are never recorded (e.g. the "key" in K("key")).
+	if _, skip := v.skipNodes[node]; skip {
+		return nil
 	}
 
 	// A single case with "ast.BasicLit" would be much easier
@@ -143,8 +155,14 @@ func (v *treeVisitor) Visit(node ast.Node) ast.Visitor {
 
 	// []string{"foo"}, map[string]string{"k": "v"}, struct{A string}{A: "foo"}
 	case *ast.CompositeLit:
+		// isMap is only consulted for pruning expression keys, which matters
+		// only when -ignore-map-keys is set.
+		isMap := false
+		if v.p.ignoreMapKeys {
+			isMap = v.isMapLiteral(t)
+		}
 		for _, item := range t.Elts {
-			v.addCompositeLiteralElement(item)
+			v.addCompositeLiteralElement(item, isMap)
 		}
 	}
 
@@ -158,7 +176,22 @@ func constValueStrings(val constant.Value) (string, string) {
 	return val.String(), val.Kind().String() + ":" + val.ExactString()
 }
 
-func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr) {
+// isMapLiteral reports whether a composite literal is a map. It prefers type
+// information (which resolves named map types and elided nested literals) and
+// falls back to the syntactic type when none is available (e.g. the CLI path,
+// where only explicit map[...]... literals can be recognized).
+func (v *treeVisitor) isMapLiteral(t *ast.CompositeLit) bool {
+	if v.typeInfo != nil {
+		if tv, ok := v.typeInfo.Types[t]; ok && tv.Type != nil {
+			_, isMap := tv.Type.Underlying().(*types.Map)
+			return isMap
+		}
+	}
+	_, ok := t.Type.(*ast.MapType)
+	return ok
+}
+
+func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr, isMap bool) {
 	if lit, ok := node.(*ast.BasicLit); ok && v.isSupported(lit.Kind) {
 		v.addString(lit.Value, lit.Pos(), CompositeLit)
 		return
@@ -169,13 +202,32 @@ func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr) {
 		return
 	}
 
-	if keyLit, ok := kv.Key.(*ast.BasicLit); ok && v.isSupported(keyLit.Kind) {
-		v.addString(keyLit.Value, keyLit.Pos(), CompositeLit)
+	if keyLit, ok := kv.Key.(*ast.BasicLit); ok {
+		// Direct literal key. A string literal can only be a map key (struct
+		// keys are identifiers, array indices are integers), so it is dropped
+		// when requested with no type information; numeric keys are out of
+		// scope and kept.
+		if v.isSupported(keyLit.Kind) && (!v.p.ignoreMapKeys || keyLit.Kind != token.STRING) {
+			v.addString(keyLit.Value, keyLit.Pos(), CompositeLit)
+		}
+	} else if v.p.ignoreMapKeys && isMap {
+		// Key is an expression (e.g. NamedString("key")); any string literal it
+		// contains is part of the map key, so skip the whole subtree. Gated on
+		// isMap so array indices such as [10]int{int(2): 1} are left alone.
+		v.markSkip(kv.Key)
 	}
 
 	if valueLit, ok := kv.Value.(*ast.BasicLit); ok && v.isSupported(valueLit.Kind) {
 		v.addString(valueLit.Value, valueLit.Pos(), CompositeLit)
 	}
+}
+
+// markSkip flags an AST node so the walk prunes it and its subtree.
+func (v *treeVisitor) markSkip(node ast.Node) {
+	if v.skipNodes == nil {
+		v.skipNodes = make(map[ast.Node]struct{})
+	}
+	v.skipNodes[node] = struct{}{}
 }
 
 // shouldIgnoreCall returns true if the call expression matches a function

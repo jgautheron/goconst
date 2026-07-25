@@ -31,6 +31,7 @@ Flags:
   -eval-const-expr            enable evaluation of constant expressions (e.g., Prefix + "suffix")
   -ignore-calls               ignore string literals in calls to these functions (comma separated)
   -ignore-composite-literals  ignore string literals inside composite literals
+  -ignore-map-keys            ignore string literals used as map keys
   -numbers                    search also for duplicated numbers
   -min                        minimum value, only works with -numbers
   -max                        maximum value, only works with -numbers
@@ -66,6 +67,7 @@ var (
 	flagGrouped                 = flag.Bool("grouped", false, "print single line per match, only works with -output text")
 	flagIgnoreCalls             = flag.String("ignore-calls", "", "ignore string literals in calls to these functions (comma separated, e.g. slog.Info,fmt.Errorf)")
 	flagIgnoreCompositeLiterals = flag.Bool("ignore-composite-literals", false, "ignore string literals inside composite literals")
+	flagIgnoreMapKeys           = flag.Bool("ignore-map-keys", false, "ignore string literals used as map keys")
 )
 
 func main() {
@@ -129,6 +131,8 @@ func run(path string) (bool, error) {
 	if *flagIgnoreCalls != "" {
 		gco.SetIgnoreFunctions(parseCommaSeparatedValues(*flagIgnoreCalls))
 	}
+
+	gco.SetIgnoreMapKeys(*flagIgnoreMapKeys)
 
 	strs, consts, err := gco.ParseTree()
 	if err != nil {

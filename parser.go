@@ -121,6 +121,7 @@ type Parser struct {
 	numberMin, numberMax        int
 	excludeTypes                map[Type]bool
 	ignoreFunctions             map[string]struct{}
+	ignoreMapKeys               bool // Whether to ignore string literals used as map keys
 	maxConcurrency              int
 	evalConstExpressions        bool // Whether to evaluate constant expressions
 
@@ -281,6 +282,12 @@ func (p *Parser) SetIgnoreFunctions(names []string) {
 		}
 	}
 	p.ignoreFunctions = m
+}
+
+// SetIgnoreMapKeys configures whether string literals used as keys in map
+// literals should be ignored. The corresponding values are still reported.
+func (p *Parser) SetIgnoreMapKeys(ignore bool) {
+	p.ignoreMapKeys = ignore
 }
 
 // ParseTree will search the given path for occurrences that could be moved into constants.

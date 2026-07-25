@@ -351,6 +351,105 @@ func example() {
 	}
 }
 
+// TestGolangCILintConfig_IgnoreMapKeys exercises the IgnoreMapKeys config field
+// through the Run entrypoint golangci-lint uses. Map keys are dropped while
+// repeated map values are still reported.
+func TestGolangCILintConfig_IgnoreMapKeys(t *testing.T) {
+	code := `package example
+func example() {
+	_ = map[string]string{"key": "shared"}
+	_ = map[string]string{"key": "shared"}
+}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	// With IgnoreMapKeys: the repeated key is dropped, the value survives.
+	cfg := &goconst.Config{
+		MinStringLength: 1,
+		MinOccurrences:  2,
+		IgnoreMapKeys:   true,
+	}
+	issues, err := goconst.Run([]*ast.File{f}, fset, info, cfg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	found := make(map[string]bool)
+	for _, issue := range issues {
+		found[issue.Str] = true
+	}
+	if found["key"] {
+		t.Error("unexpected issue for map key 'key' (filtered by IgnoreMapKeys)")
+	}
+	if !found["shared"] {
+		t.Error("expected issue for repeated map value 'shared'")
+	}
+
+	// Without IgnoreMapKeys: the repeated key is reported as before.
+	cfgOff := &goconst.Config{MinStringLength: 1, MinOccurrences: 2}
+	issuesOff, err := goconst.Run([]*ast.File{f}, fset, info, cfgOff)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	foundOff := make(map[string]bool)
+	for _, issue := range issuesOff {
+		foundOff[issue.Str] = true
+	}
+	if !foundOff["key"] {
+		t.Error("expected issue for map key 'key' when IgnoreMapKeys is disabled")
+	}
+}
+
+// TestGolangCILintConfig_IgnoreMapKeys_ExpressionKeys covers keys that are
+// expressions rather than plain literals in a named map type. Recognizing the
+// named map requires the type information golangci-lint supplies.
+func TestGolangCILintConfig_IgnoreMapKeys_ExpressionKeys(t *testing.T) {
+	code := `package example
+type K string
+type M map[K]string
+func example() {
+	_ = M{K("role"): "shared"}
+	_ = M{K("role"): "shared"}
+}
+`
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "example.go", code, 0)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	chkr, info := checker(fset)
+	_ = chkr.Files([]*ast.File{f})
+
+	cfg := &goconst.Config{
+		MinStringLength: 1,
+		MinOccurrences:  2,
+		IgnoreMapKeys:   true,
+	}
+	issues, err := goconst.Run([]*ast.File{f}, fset, info, cfg)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	found := make(map[string]bool)
+	for _, issue := range issues {
+		found[issue.Str] = true
+	}
+	if found["role"] {
+		t.Error("unexpected issue for converted map key 'role' (filtered by IgnoreMapKeys)")
+	}
+	if !found["shared"] {
+		t.Error("expected issue for repeated map value 'shared'")
+	}
+}
+
 func checker(fset *token.FileSet) (*types.Checker, *types.Info) {
 	cfg := &types.Config{
 		Error: func(err error) {},
