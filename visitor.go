@@ -207,7 +207,7 @@ func (v *treeVisitor) addCompositeLiteralElement(node ast.Expr, isMap bool) {
 		// keys are identifiers, array indices are integers), so it is dropped
 		// when requested with no type information; numeric keys are out of
 		// scope and kept.
-		if v.isSupported(keyLit.Kind) && !(v.p.ignoreMapKeys && keyLit.Kind == token.STRING) {
+		if v.isSupported(keyLit.Kind) && (!v.p.ignoreMapKeys || keyLit.Kind != token.STRING) {
 			v.addString(keyLit.Value, keyLit.Pos(), CompositeLit)
 		}
 	} else if v.p.ignoreMapKeys && isMap {
