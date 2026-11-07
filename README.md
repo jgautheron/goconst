@@ -17,6 +17,7 @@ A few things to keep in mind:
 - **Exact literal matching** — goconst compares complete, unquoted literal values. Repeated substrings inside larger strings are not detected (e.g., a shared prefix across two different string literals will not be reported).
 - **`const` declarations are skipped by default** — constant values are only analyzed when `-match-constant` (match strings against existing constants) or `-find-duplicates` (find constants sharing the same value) is enabled.
 - **String length is measured in runes**, not bytes, so multi-byte Unicode characters are counted correctly against `-min-length`.
+- **Test files are excluded by default** — `-ignore-tests` defaults to `true`. When test files are included in the search, occurrences in test files and non-test files are scoped separately so that test occurrences do not trigger reports in production code.
 
 ### Get Started
 
